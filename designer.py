@@ -9,45 +9,27 @@ import numpy as np
 import skrf as rf
 from termcolor import colored
 
+from rf import (
+    SParameterLoader,
+)
+
 
 class MiniCircuitsLinearAmpDesigner:
-    def __init__(self, s2p_file_path=None, z0=50):
+    def __init__(self, loader_instance, z0=50):
         """
         Initializes the designer by loading the Mini-Circuits Touchstone .s2p data.
         """
         self.z0 = z0
-        self.network = None
-        self.f_min_mhz = 10.0
-        self.f_max_mhz = 1000.0
-        self.f_center_mhz = 505.0
-
-        if s2p_file_path:
-            self.load_s2p_file(s2p_file_path)
-
-    def load_s2p_file(
-        self, s2p_file_path, f_min_override=None, f_max_with_override=None
-    ):
-        """Loads or updates the Touchstone file profile dynamically with optional band window clipping."""
-        self.network = rf.Network(s2p_file_path)
-
-        native_min = self.network.frequency.start / 1e6
-        native_max = self.network.frequency.stop / 1e6
-
-        self.f_min_mhz = f_min_override if f_min_override is not None else native_min
-        self.f_max_mhz = (
-            f_max_with_override if f_max_with_override is not None else native_max
-        )
-        self.f_center_mhz = (self.f_min_mhz + self.f_max_mhz) / 2
-        return self.network
+        self.loader = loader_instance
 
     def plot_linear_performance(self, embed_fig=None):
         """Plots standard S-parameters, stability factor K, and Max Gain."""
-        freq_ghz = self.network.f / 1e9
-        s11_db = self.network.s11.s_db.flatten()
-        s21_db = self.network.s21.s_db.flatten()
-        s22_db = self.network.s22.s_db.flatten()
-        k_factor = self.network.stability.flatten()
-        g_max_db = self.network.max_gain.flatten()
+        freq_ghz = self.loader.network.f / 1e9
+        s11_db = self.loader.network.s11.s_db.flatten()
+        s21_db = self.loader.network.s21.s_db.flatten()
+        s22_db = self.loader.network.s22.s_db.flatten()
+        k_factor = self.loader.network.stability.flatten()
+        g_max_db = self.loader.network.max_gain.flatten()
 
         # Check if we are passing a container from a GUI window canvas layout interface frame
         if embed_fig:
@@ -68,12 +50,12 @@ class MiniCircuitsLinearAmpDesigner:
         axs[0, 0].plot(freq_ghz, s21_db, label="Gain ($S_{21}$)", color="blue")
         axs[0, 0].plot(
             freq_ghz,
-            self.network.s12.s_db.flatten(),
+            self.loader.network.s12.s_db.flatten(),
             label="Isolation ($S_{12}$)",
             color="orange",
             linestyle="--",
         )
-        axs[0, 0].set_title(f"{self.network.name}: Gain & Isolation")
+        axs[0, 0].set_title(f"{self.loader.network.name}: Gain & Isolation")
         axs[0, 0].set_ylabel("dB")
         axs[0, 0].grid(True)
         axs[0, 0].legend()
@@ -105,7 +87,7 @@ class MiniCircuitsLinearAmpDesigner:
 
         for ax in axs.flatten():
             # Convert our selected MHz variables to GHz to match the graph's horizontal units
-            ax.set_xlim(self.f_min_mhz / 1000.0, self.f_max_mhz / 1000.0)
+            ax.set_xlim(self.loader.f_min_mhz / 1000.0, self.loader.f_max_mhz / 1000.0)
 
         fig.tight_layout()
         if not embed_fig:
@@ -117,24 +99,24 @@ class MiniCircuitsLinearAmpDesigner:
         lower and upper limits on the Smith Chart, overlaid with the stability
         circles and a live worst-case VSWR tracking marker ring.
         """
-        if not self.network:
+        if not self.loader.network:
             return
 
         if target_freq_mhz is None:
-            target_freq_mhz = self.f_center_mhz
+            target_freq_mhz = self.loader.f_center_mhz
 
         # 1. Extract indices corresponding to your selected working band limits
-        f_all_mhz = self.network.f / 1e6
+        f_all_mhz = self.loader.network.f / 1e6
         band_indices = np.where(
-            (f_all_mhz >= self.f_min_mhz) & (f_all_mhz <= self.f_max_mhz)
+            (f_all_mhz >= self.loader.f_min_mhz) & (f_all_mhz <= self.loader.f_max_mhz)
         )[0]
 
         if len(band_indices) == 0:
             band_indices = np.array([np.argmin(np.abs(f_all_mhz - target_freq_mhz))])
 
         # Extract the swept data chunks across your customized frequency limits
-        s11_sweep = self.network.s[band_indices, 0, 0]
-        s22_sweep = self.network.s[band_indices, 1, 1]
+        s11_sweep = self.loader.network.s[band_indices, 0, 0]
+        s22_sweep = self.loader.network.s[band_indices, 1, 1]
 
         # --- LIVE VSWR PEAK RADIAL MARKER TRACKING ENGINE ---
         # Calculate VSWR arrays across the band: VSWR = (1 + |G|) / (1 - |G|)
@@ -154,13 +136,13 @@ class MiniCircuitsLinearAmpDesigner:
 
         # 2. Extract specific center evaluation single frequency metrics for stability calculations
         freq_hz = target_freq_mhz * 1e6
-        idx = np.argmin(np.abs(self.network.f - freq_hz))
-        actual_freq_ghz = self.network.f[idx] / 1e9
+        idx = np.argmin(np.abs(self.loader.network.f - freq_hz))
+        actual_freq_ghz = self.loader.network.f[idx] / 1e9
 
-        s11 = self.network.s[idx, 0, 0]
-        s12 = self.network.s[idx, 0, 1]
-        s21 = self.network.s[idx, 1, 0]
-        s22 = self.network.s[idx, 1, 1]
+        s11 = self.loader.network.s[idx, 0, 0]
+        s12 = self.loader.network.s[idx, 0, 1]
+        s21 = self.loader.network.s[idx, 1, 0]
+        s22 = self.loader.network.s[idx, 1, 1]
 
         delta = s11 * s22 - s12 * s21
         delta_mag = np.abs(delta)
@@ -205,14 +187,14 @@ class MiniCircuitsLinearAmpDesigner:
             np.imag(s11_sweep),
             color="darkorange",
             linewidth=3,
-            label=f"S11 Sweep ({self.f_min_mhz:.0f}-{self.f_max_mhz:.0f}MHz)",
+            label=f"S11 Sweep ({self.loader.f_min_mhz:.0f}-{self.loader.f_max_mhz:.0f}MHz)",
         )
         ax2.plot(
             np.real(s22_sweep),
             np.imag(s22_sweep),
             color="darkcyan",
             linewidth=3,
-            label=f"S22 Sweep ({self.f_min_mhz:.0f}-{self.f_max_mhz:.0f}MHz)",
+            label=f"S22 Sweep ({self.loader.f_min_mhz:.0f}-{self.loader.f_max_mhz:.0f}MHz)",
         )
 
         # --- NEW ADDITION: Plot Worst-Case VSWR Tracking Ring & Point Marker ---
@@ -355,7 +337,7 @@ class MiniCircuitsLinearAmpDesigner:
                 "desc": "Ultra-small ceramic chip / Low current, high-SRF",
             },
         }
-        f_min, f_max = self.f_min_mhz * 1e6, self.f_max_mhz * 1e6
+        f_min, f_max = self.loader.f_min_mhz * 1e6, self.loader.f_max_mhz * 1e6
         target_xl_min = 10 * self.z0
         target_srf_min = srf_safety_factor * f_max
         l_min = target_xl_min / (2 * math.pi * f_min)
@@ -433,7 +415,7 @@ class MiniCircuitsLinearAmpDesigner:
             "0603": {"esl_nh": 0.6},
             "0402": {"esl_nh": 0.4},
         }
-        f_min, f_center = self.f_min_mhz * 1e6, self.f_center_mhz * 1e6
+        f_min, f_center = self.loader.f_min_mhz * 1e6, self.loader.f_center_mhz * 1e6
         c_min = 1 / (2 * math.pi * f_min * (self.z0 / 10))
         standard_pf = [10, 22, 47, 100, 220, 470, 1000, 2200, 4700, 10000]
 
@@ -441,7 +423,7 @@ class MiniCircuitsLinearAmpDesigner:
         print(" 2. DC-BLOCK / COUPLING CAPACITOR SELECTION")
         print("=" * 75)
         print(
-            f"[*] Target Freq: {self.f_center_mhz:.1f} MHz | Min Cap Req: {c_min * 1e12:.1f} pF"
+            f"[*] Target Freq: {self.loader.f_center_mhz:.1f} MHz | Min Cap Req: {c_min * 1e12:.1f} pF"
         )
         print("-" * 75)
 
@@ -460,9 +442,9 @@ class MiniCircuitsLinearAmpDesigner:
             )
 
     def design_feedback_loop(self):
-        mid_index = len(self.network) // 2
-        actual_gain_db = self.network.s21.s_db[mid_index]
-        f_min = self.f_min_mhz * 1e6
+        mid_index = len(self.loader.network) // 2
+        actual_gain_db = self.loader.network.s21.s_db[mid_index]
+        f_min = self.loader.f_min_mhz * 1e6
         a_v = 10 ** (actual_gain_db / 20.0)
         r_fb_ideal = self.z0 * (a_v + 1)
         c_fb_min = 1 / (2 * math.pi * f_min * (r_fb_ideal / 10.0))
@@ -791,11 +773,11 @@ class MiniCircuitsLinearAmpDesigner:
         un-matched S11 and S22 ports back to the system Z0 reference.
         """
         if target_freq_mhz is None:
-            target_freq_mhz = self.f_center_mhz
+            target_freq_mhz = self.loader.f_center_mhz
 
         freq_hz = target_freq_mhz * 1e6
-        idx = np.argmin(np.abs(self.network.f - freq_hz))
-        actual_freq_mhz = self.network.f[idx] / 1e6
+        idx = np.argmin(np.abs(self.loader.network.f - freq_hz))
+        actual_freq_mhz = self.loader.network.f[idx] / 1e6
         omega = 2 * math.pi * freq_hz
 
         print("\n" + "=" * 75)
@@ -805,8 +787,8 @@ class MiniCircuitsLinearAmpDesigner:
         print("=" * 75)
 
         for port_name, s_param in [
-            ("Input Matching (S11)", self.network.s[idx, 0, 0]),
-            ("Output Matching (S22)", self.network.s[idx, 1, 1]),
+            ("Input Matching (S11)", self.loader.network.s[idx, 0, 0]),
+            ("Output Matching (S22)", self.loader.network.s[idx, 1, 1]),
         ]:
             # Convert S-parameters to complex impedance
             gamma = s_param
@@ -866,7 +848,7 @@ class MiniCircuitsLinearAmpDesigner:
         electrical lengths (like quarter-wave 90 deg bias lines) into raw mm PCB layout dimensions.
         """
         if target_freq_mhz is None:
-            target_freq_mhz = self.f_center_mhz
+            target_freq_mhz = self.loader.f_center_mhz
 
         freq_hz = target_freq_mhz * 1e6
         c_speed = 299792458  # Speed of light in m/s
@@ -945,10 +927,10 @@ class MiniCircuitsLinearAmpDesigner:
                     f"Generated Profile Analysis Suite for Mini-Circuits `.s2p` Device Networks.\n\n"
                 )
                 f.write(f"## 1. Operating Frequency Band Parameters\n")
-                f.write(f"* **Minimum Lower Bound:** {self.f_min_mhz:.2f} MHz\n")
-                f.write(f"* **Maximum Upper Bound:** {self.f_max_mhz:.2f} MHz\n")
+                f.write(f"* **Minimum Lower Bound:** {self.loader.f_min_mhz:.2f} MHz\n")
+                f.write(f"* **Maximum Upper Bound:** {self.loader.f_max_mhz:.2f} MHz\n")
                 f.write(
-                    f"* **Calculated Center Band Point:** {self.f_center_mhz:.2f} MHz\n"
+                    f"* **Calculated Center Band Point:** {self.loader.f_center_mhz:.2f} MHz\n"
                 )
                 f.write(f"* **Reference Port Line Matching Match:** {self.z0} Ohms\n\n")
                 f.write(f"## 2. Mandatory Component Sourcing Bill of Materials (BOM)\n")
@@ -1333,10 +1315,11 @@ if __name__ == "__main__":
             attrs=["bold"],
         )
     )
-    designer = MiniCircuitsLinearAmpDesigner(z0=args.z0)
-    designer.load_s2p_file(
-        args.s2p_file, f_min_override=args.fmin, f_max_with_override=args.fmax
-    )
+
+    loader = SParameterLoader()
+    loader.load(args.s2p_file, f_min_override=args.fmin, f_max_override=args.fmax)
+
+    designer = MiniCircuitsLinearAmpDesigner(loader_instance=loader, z0=args.z0)
 
     # Execute the analytical hardware design methods
     designer.design_bias_choke(srf_safety_factor=args.srf_safety)

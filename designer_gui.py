@@ -10,6 +10,10 @@ from tkinter import filedialog, messagebox, ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+from rf import (
+    SParameterLoader,
+)
+
 # Import the designer class core from your existing file
 # (Assumes your file is named 'designer.py')
 try:
@@ -29,14 +33,11 @@ class DesignerApp:
         self.root.geometry("1300x850")
 
         # Instantiate the analysis engine with no initial file path
-        self.designer = MiniCircuitsLinearAmpDesigner.__new__(
-            MiniCircuitsLinearAmpDesigner
-        )
-        self.designer.z0 = 50.0
-        self.designer.network = None
-        self.designer.f_min_mhz = 10.0
-        self.designer.f_max_mhz = 1000.0
-        self.designer.f_center_mhz = 505.0
+        self.loader = SParameterLoader()
+        self.designer = MiniCircuitsLinearAmpDesigner(loader_instance=self.loader, z0=50.0)
+        #self.designer = MiniCircuitsLinearAmpDesigner.__new__(
+        #    MiniCircuitsLinearAmpDesigner
+        #)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -199,14 +200,14 @@ class DesignerApp:
         )
         if fpath:
             # Re-initialize complete class references using target model profile path context
-            self.designer.load_s2p_file(fpath)
+            self.loader.load(fpath)
             self.s2p_path_var.set(os.path.basename(fpath))
-            self.fmin_var.set(round(self.designer.f_min_mhz, 1))
-            self.fmax_var.set(round(self.designer.f_max_mhz, 1))
+            self.fmin_var.set(round(self.loader.f_min_mhz, 1))
+            self.fmax_var.set(round(self.loader.f_max_mhz, 1))
             self.recompute_all()
 
     def recompute_all(self):
-        if not self.designer.network:
+        if not self.designer.loader.network:
             messagebox.showwarning(
                 "Data Profile Missing",
                 "Please load a Mini-Circuits Touchstone .s2p file descriptor first.",
@@ -224,9 +225,9 @@ class DesignerApp:
             )
             return
 
-        self.designer.f_min_mhz = f_low
-        self.designer.f_max_mhz = f_high
-        self.designer.f_center_mhz = (f_low + f_high) / 2.0
+        self.loader.f_min_mhz = f_low
+        self.loader.f_max_mhz = f_high
+        self.loader.f_center_mhz = (f_low + f_high) / 2.0
 
         import io
 
@@ -252,12 +253,12 @@ class DesignerApp:
                 )
 
             # Match and calculate electrical characteristics exactly at the center of your targeted working band
-            self.designer.design_lc_matching(target_freq_mhz=self.designer.f_center_mhz)
+            self.designer.design_lc_matching(target_freq_mhz=self.loader.f_center_mhz)
             self.designer.calculate_microstrip_electrical_length(
                 h_mils=62.0,
                 er=4.2,
                 target_deg=90.0,
-                target_freq_mhz=self.designer.f_center_mhz,
+                target_freq_mhz=self.loader.f_center_mhz,
             )
             self.designer.design_fixed_attenuator_pad(
                 target_attn_db=self.attn_var.get()
@@ -273,7 +274,7 @@ class DesignerApp:
         self.plot_canvas.draw()
 
         self.designer.plot_stability_circles(
-            target_freq_mhz=self.designer.f_center_mhz, embed_fig=self.smith_fig
+            target_freq_mhz=self.loader.f_center_mhz, embed_fig=self.smith_fig
         )
         self.smith_canvas.draw()
 
@@ -288,7 +289,7 @@ class DesignerApp:
         self.therm_canvas.draw()
 
     def export_hardware(self):
-        if not self.designer.network:
+        if not self.loader.network:
             messagebox.showwarning(
                 "Export Blocked",
                 "No trace model data loaded to synthesize footprints from.",
