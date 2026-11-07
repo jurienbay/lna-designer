@@ -13,6 +13,7 @@ from rf import (
     SParameterLoader,
     serialize_pcb_layout,
     serialize_schematic,
+    serialize_markdown_report,
 )
 
 
@@ -921,56 +922,6 @@ class MiniCircuitsLinearAmpDesigner:
         )
         print("=" * 75)
 
-    def export_markdown_bom_report(self, output_filename="design_report.md"):
-        """
-        Gathers tool metrics and auto-saves a clean Markdown procurement summary file.
-        """
-        try:
-            with open(output_filename, "w", encoding="utf-8") as f:
-                f.write(f"# Automated RF Hardware Design Report\n\n")
-                f.write(
-                    f"Generated Profile Analysis Suite for Mini-Circuits `.s2p` Device Networks.\n\n"
-                )
-                f.write(f"## 1. Operating Frequency Band Parameters\n")
-                f.write(f"* **Minimum Lower Bound:** {self.loader.f_min_mhz:.2f} MHz\n")
-                f.write(f"* **Maximum Upper Bound:** {self.loader.f_max_mhz:.2f} MHz\n")
-                f.write(
-                    f"* **Calculated Center Band Point:** {self.loader.f_center_mhz:.2f} MHz\n"
-                )
-                f.write(f"* **Reference Port Line Matching Match:** {self.z0} Ohms\n\n")
-                f.write(f"## 2. Mandatory Component Sourcing Bill of Materials (BOM)\n")
-                f.write(
-                    f"| Circuit Location Block | Component Specified Value / Design Constraint Target |\n"
-                )
-                f.write(f"| :--- | :--- |\n")
-                f.write(
-                    f"| **RF Coupling Bias Choke Inductor** | Refer to screen print for working E12 SMD bounds |\n"
-                )
-                f.write(
-                    f"| **Input/Output DC Blocks** | Sized to hit center SRF match criteria |\n"
-                )
-                f.write(
-                    f"| **DC Biasing Resistor (Rbias)** | Sized for target Vcc drop constraints |\n"
-                )
-                f.write(
-                    f"| **Microstrip Line Trace Width Width** | Calculated relative to FR4 height profiles |\n"
-                )
-            print(
-                colored(
-                    f"\n[+] Production Design Data Export Complete: Saved report to '{output_filename}'",
-                    "green",
-                    attrs=["bold"],
-                )
-            )
-        except IOError as e:
-            print(
-                colored(
-                    f"\n[!] System Failure: Could not write file destination path: {e}",
-                    "red",
-                )
-            )
-
-
 
 if __name__ == "__main__":
     import argparse
@@ -1126,7 +1077,20 @@ if __name__ == "__main__":
         h_mils=62.0, er=4.2, target_deg=90.0, target_freq_mhz=args.freq_eval
     )
     designer.design_fixed_attenuator_pad(target_attn_db=args.attn_pad)
-    designer.export_markdown_bom_report(output_filename=args.export_path)
+
+    # Calculate the er_eff properties headlessly to pass down to template tracker
+    er_eff_calc, _ = designer.calculate_microstrip_electrical_length(target_freq_mhz=designer.loader.f_center_mhz)
+    dist_vec, z_vec = calculate_spatial_tdr(designer.loader.network, er_eff=er_eff_calc, z0=designer.z0)
+
+    serialize_markdown_report(
+        output_filename=args.export_path,
+        f_min=designer.loader.f_min_mhz,
+        f_max=designer.loader.f_max_mhz,
+        f_center=designer.loader.f_center_mhz,
+        z0=designer.z0,
+        tdr_distance=dist_vec,
+        tdr_impedance=z_vec
+    )
 
     # To grab the calculated value seamlessly without changing your existing function prints,
     # we run a quick internal simulation check variable pass:

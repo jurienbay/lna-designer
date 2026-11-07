@@ -15,6 +15,7 @@ from rf import (
     calculate_spatial_tdr,
     serialize_pcb_layout,
     serialize_schematic,
+    serialize_markdown_report,
 )
 
 # Import the designer class core from your existing file
@@ -340,6 +341,22 @@ class DesignerApp:
         try:
             serialize_pcb_layout(output_filename=lay_file, trace_width_mils=best_w)
             serialize_schematic(output_filename=sch_file)
+
+            # Re-compute active parameters to pass down spatial trace telemetry live maps
+            er_eff, _ = self.designer.calculate_microstrip_electrical_length(
+                h_mils=62.0, er=4.2, target_deg=90.0, target_freq_mhz=self.loader.f_center_mhz
+            )
+            dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.designer.z0)
+
+            serialize_markdown_report(
+                output_filename=rpt_file,
+                f_min=self.loader.f_min_mhz,
+                f_max=self.loader.f_max_mhz,
+                f_center=self.loader.f_center_mhz,
+                z0=self.designer.z0,
+                tdr_distance=dist_axis,
+                tdr_impedance=z_profile
+            )
 
             messagebox.showinfo(
                 "Export Complete",
