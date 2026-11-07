@@ -1,0 +1,7 @@
+scikit-rf>=1.0.0
+scipy>=1.10.0
+numpy>=1.22.0
+matplotlib>=3.6.0
+termcolor>=2.0.0
+kicad-pycbnew>=0.1.5
+kicad-sch-api>=0.2.1
