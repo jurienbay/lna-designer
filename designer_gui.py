@@ -12,7 +12,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from rf import (
     SParameterLoader,
-    serialize_pcb_layout, serialize_schematic,
+    calculate_spatial_tdr,
+    serialize_pcb_layout,
+    serialize_schematic,
 )
 
 # Import the designer class core from your existing file
@@ -186,6 +188,11 @@ class DesignerApp:
             self.therm_canvas.get_tk_widget(), text=" Surface Thermal Gradient "
         )
 
+        # Tab 5: Spatial TDR Mismatch Profiler Layout Canvas
+        self.tdr_fig, self.tdr_ax = plt.subplots(figsize=(8, 5))
+        self.tdr_canvas = FigureCanvasTkAgg(self.tdr_fig, master=self.notebook)
+        self.notebook.add(self.tdr_canvas.get_tk_widget(), text=" Spatial TDR Mismatch Graph ")
+
     def on_secure_close(self):
         """
         Forces Matplotlib memory handles to clear completely, preventing the
@@ -255,7 +262,7 @@ class DesignerApp:
 
             # Match and calculate electrical characteristics exactly at the center of your targeted working band
             self.designer.design_lc_matching(target_freq_mhz=self.loader.f_center_mhz)
-            self.designer.calculate_microstrip_electrical_length(
+            er_eff, _ = self.designer.calculate_microstrip_electrical_length(
                 h_mils=62.0,
                 er=4.2,
                 target_deg=90.0,
@@ -264,6 +271,23 @@ class DesignerApp:
             self.designer.design_fixed_attenuator_pad(
                 target_attn_db=self.attn_var.get()
             )
+
+            # Execute structural spatial TDR sweeps via the rf_engine pipeline package
+            dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.designer.z0)
+
+            # Clear and redraw the TDR axis canvas container explicitly
+            self.tdr_ax.clear()
+            self.tdr_ax.plot(dist_axis, z_profile, color='deeppink', linewidth=2, label='Line Profile ($Z_{inst}$)')
+            self.tdr_ax.axhline(self.designer.z0, color='grey', linestyle='--', alpha=0.7, label='Target $Z_0$ Baseline (50Ω)')
+
+            self.tdr_ax.set_title("PCB Spatial Mismatch Profile (Time-Domain Reflectometry Simulation)")
+            self.tdr_ax.set_xlabel("Physical Distance Along the Input Transmission Trace Path (mm)")
+            self.tdr_ax.set_ylabel(r"Instantaneous Discontinuity Impedance ($\Omega$)")
+            self.tdr_ax.set_ylim(35.0, 65.0)  # Bound standard viewport range cleanly around 50 Ohms
+            self.tdr_ax.grid(True, linestyle=':', alpha=0.6)
+            self.tdr_ax.legend(loc='upper right')
+            self.tdr_fig.tight_layout()
+            self.tdr_canvas.draw()
 
         finally:
             sys.stdout = old_stdout
