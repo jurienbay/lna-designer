@@ -111,14 +111,14 @@ class MiniCircuitsLinearAmpDesigner:
         f_all_mhz = self.loader.network.f / 1e6
         band_indices = np.where(
             (f_all_mhz >= self.loader.f_min_mhz) & (f_all_mhz <= self.loader.f_max_mhz)
-        )[0]
+        )[0].flatten()
 
         if len(band_indices) == 0:
             band_indices = np.array([np.argmin(np.abs(f_all_mhz - target_freq_mhz))])
 
         # Extract the swept data chunks across your customized frequency limits
-        s11_sweep = self.loader.network.s[band_indices, 0, 0]
-        s22_sweep = self.loader.network.s[band_indices, 1, 1]
+        s11_sweep = self.loader.network.s[band_indices, 0, 0].flatten()
+        s22_sweep = self.network.s[band_indices, 1, 1].flatten() if hasattr(self, 'network') and self.network else self.loader.network.s[band_indices, 1, 1].flatten()
 
         # --- LIVE VSWR PEAK RADIAL MARKER TRACKING ENGINE ---
         # Calculate VSWR arrays across the band: VSWR = (1 + |G|) / (1 - |G|)
