@@ -284,6 +284,7 @@ class DesignerApp:
             v_d=8.0,
             i_d=0.234,
             theta_jc=29.3,
+            board_type=self.board_type_var.get(),
             embed_fig=self.therm_fig,
         )
         self.therm_canvas.draw()

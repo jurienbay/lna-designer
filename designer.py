@@ -465,27 +465,42 @@ class MiniCircuitsLinearAmpDesigner:
         print("=" * 75)
 
     def analyze_thermal_profile(
-        self, t_ambient_c=85.0, v_d=8.0, i_d=0.234, theta_jc=29.3, embed_fig=None
+        self, t_ambient_c=85.0, v_d=8.0, i_d=0.234, theta_jc=29.3, board_type="FR-4 Standard (1.6mm)", embed_fig=None
     ):
         """
         Calculates Junction Temperature (Tj) and visualises the 2D thermal dissipation
-        gradient across the PCB copper plane away from the device ground paddle.
+        gradient across the PCB copper plane relative to the selected substrate type.
+        Applies a localized heat-spreading model to calculate layout layout clearances.
         """
-        # ... logic calculations stay identical ...
         p_dc = v_d * i_d
         t_j_max_allowed = 150.0
         t_j = t_ambient_c + (p_dc * theta_jc)
         safety_margin = t_j_max_allowed - t_j
 
+        # --- DYNAMIC MATERIAL THERMODYNAMICS MATRIX ENGINE ---
+        profile = self.SUBSTRATE_PROFILES.get(board_type, self.SUBSTRATE_PROFILES["FR-4 Standard (1.6mm)"])
+        h_mils = profile["h_mils"]
+
+        # Convection coefficients scale with substrate height profiles (thinner boards choke vertical spreading)
+        # Standard still-air base coefficient adjusted proportionally by dielectric volume constraints
+        h_conv_base = 0.000015  # W/mm^2*K
+        h_conv = h_conv_base * (h_mils / 62.0)  # Thinner laminates decrease air-interfacing vertical boundaries
+
+        t_case_target = 115.0  # Safe board/paddle copper target limit
+        min_copper_area_mm2 = p_dc / (h_conv * (t_case_target - t_ambient_c)) if t_ambient_c < t_case_target else 999.9
+        spreading_radius_mm = math.sqrt(min_copper_area_mm2 / math.pi) if min_copper_area_mm2 > 0 else 0.0
+
+        # Adjust the visual 2D exponential math decay constant relative to the substrate material thermal resistance
+        # Thinner substrates or high-frequency cores experience a sharper localized hot-spot delta radius
+        decay_constant = 0.35 * (62.0 / h_mils)
+
         print("\n" + "=" * 75)
-        print(" 5. DEVICE THERMAL RELIABILITY ANALYSIS (PHA-13HLN+ PROFILE)")
+        print(f" 5. DEVICE THERMAL RELIABILITY & PCB LAYOUT ADVISOR ({board_type.upper()})")
         print("=" * 75)
-        print(f"[*] Input Bias Specs:  {v_d:.1f} V @ {i_d * 1000:.1f} mA")
-        print(f"[*] Power Dissipated:  {p_dc:.2f} Watts")
-        print(f"[*] Package Theta_JC:  {theta_jc:.1f} °C/W")
-        print(
-            f"[+] Calculated Junction Temp (Tj): {t_j:.1f} °C (At Case Temp: {t_ambient_c:.1f} °C)"
-        )
+        print(f"[*] Input Bias Power:  {v_d:.1f} V @ {i_d*1000:.1f} mA --> {p_dc:.2f} Watts")
+        print(f"[+] Calculated Junction Temp (Tj): {t_j:.1f} °C (Absolute Max: {t_j_max_allowed}°C)")
+        print(f"[+] Required Ground Heat-Sink Pour: >= {min_copper_area_mm2:.1f} mm² (~{math.sqrt(min_copper_area_mm2):.1f} x {math.sqrt(min_copper_area_mm2):.1f} mm square)")
+        print(f"[+] Keep-Out Radius for Passives:   >= {spreading_radius_mm:.1f} mm around package center")
 
         if t_j < t_j_max_allowed:
             print(
@@ -519,54 +534,42 @@ class MiniCircuitsLinearAmpDesigner:
         else:
             fig, ax = plt.subplots(figsize=(8, 6))
 
-        size = 100
+        # Generate a 2D Heat Dissipation Coordinate Mesh (20mm x 20mm layout space)
+        size = 200
         x = np.linspace(-10, 10, size)
         y = np.linspace(-10, 10, size)
         X, Y = np.meshgrid(x, y)
-
         distance = np.sqrt(X**2 + Y**2)
-        decay_constant = 0.35
-        t_pcb_grid = t_ambient_c + (t_j - t_ambient_c) * np.exp(
-            -decay_constant * distance
-        )
 
-        thermal_map = ax.imshow(
-            t_pcb_grid, extent=[-10, 10, -10, 10], cmap="jet", origin="lower"
-        )
+        t_pcb_grid = t_ambient_c + (t_j - t_ambient_c) * np.exp(-decay_constant * distance)
 
-        ax.add_patch(
-            plt.Rectangle(
-                (-2.25, -2.0),
-                4.5,
-                4.0,
-                fill=False,
-                edgecolor="white",
-                linewidth=2,
-                linestyle="--",
-                label="SOT-89 Package Outline",
-            )
-        )
-        ax.add_patch(
-            plt.Rectangle(
-                (-0.9, -4.0),
-                1.8,
-                2.0,
-                fill=True,
-                color="black",
-                alpha=0.3,
-                label="Thermal Ground Paddle",
-            )
-        )
+        # Plot the 2D Continuous Surface Heat Map
+        thermal_map = ax.imshow(t_pcb_grid, extent=[-10, 10, -10, 10], cmap='jet', origin='lower')
 
-        # Prevent appending duplicate colorbars to the same subplot area on re-calculation passes
-        if not hasattr(ax, "_colorbar_attached") or ax._colorbar_attached is None:
-            cbar = fig.colorbar(thermal_map, ax=ax, label="Temperature (°C)")
+        # --- Isothermal Contour Lines ---
+        levels = [t_ambient_c + 15, 100.0, 125.0]
+        levels = [lvl for lvl in levels if t_ambient_c < lvl < t_j]
+        if levels:
+            contours = ax.contour(X, Y, t_pcb_grid, levels=sorted(list(set(levels))), colors='white', linewidths=1.0, linestyles=':')
+            ax.clabel(contours, inline=True, fmt='%1.0f°C', fontsize=9, colors='white')
+
+        # Add SOT-89 footprint outlines to orient the physical components layout scale
+        ax.add_patch(plt.Rectangle((-2.25, -2.0), 4.5, 4.0, fill=False, edgecolor='black', linewidth=1.5, linestyle='--', alpha=0.7, label='SOT-89 Body'))
+        ax.add_patch(plt.Rectangle((-0.9, -4.0), 1.8, 2.0, fill=True, color='black', alpha=0.15, label='Ground Paddle Sink'))
+
+        # Draw a visual keep-out target circle matching our calculated heat-spreading boundary radius
+        if spreading_radius_mm < 10.0:
+            circle = plt.Circle((0, 0), spreading_radius_mm, color='white', fill=False, linestyle='-', linewidth=1.5, label='Req. Minimum Heat-Sink Zone')
+            ax.add_patch(circle)
+
+        if not hasattr(ax, '_colorbar_attached') or ax._colorbar_attached is None:
+            cbar = fig.colorbar(thermal_map, ax=ax, label='Substrate Temperature (°C)')
             ax._colorbar_attached = cbar
 
-        ax.set_title(f"PHA-13HLN+ PCB Surface Temperature Gradient (Tj = {t_j:.1f}°C)")
+        ax.set_title(f"PHA-13HLN+ Substrate Thermal Gradient (Tj = {t_j:.1f}°C)")
         ax.set_xlabel("X-Axis Distance from Package Center (mm)")
         ax.set_ylabel("Y-Axis Distance from Package Center (mm)")
-        ax.legend(loc="upper right")
+        ax.legend(loc='upper right', fontsize='small')
         ax.grid(False)
 
         fig.tight_layout()
@@ -1330,7 +1333,7 @@ if __name__ == "__main__":
     # Sized parameters explicitly paired for PHA-13HLN+ datasheet thresholds
     designer.design_active_dc_bias(v_cc=args.vcc, v_d=8.0, i_d=0.234)
     designer.analyze_thermal_profile(
-        t_ambient_c=args.t_amb, v_d=8.0, i_d=0.234, theta_jc=29.3
+        t_ambient_c=args.t_amb, v_d=8.0, i_d=0.234, theta_jc=29.3, board_type=args.board_type
     )
 
     # Calculate microstrip trace sizing configurations for standard 1.6mm 2-layer FR4 boards
