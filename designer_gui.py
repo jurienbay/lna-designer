@@ -12,6 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from rf import (
     SParameterLoader,
+    serialize_pcb_layout, serialize_schematic,
 )
 
 # Import the designer class core from your existing file
@@ -308,13 +309,13 @@ class DesignerApp:
             )
 
         # Output project blocks straight to workspace directory path with environment safety checks
+        lay_file = "gui_layout.kicad_pcb"
         sch_file = "gui_schematic.kicad_sch"
         rpt_file = "gui_report.md"
 
         try:
-            # self.designer.generate_kicad_pcb_layout(output_filename=pcb_file, trace_width_mils=best_w)
-            self.designer.generate_kicad_schematic(output_filename=sch_file)
-            self.designer.export_markdown_bom_report(output_filename=rpt_file)
+            serialize_pcb_layout(output_filename=lay_file, trace_width_mils=best_w)
+            serialize_schematic(output_filename=sch_file)
 
             messagebox.showinfo(
                 "Export Complete",
