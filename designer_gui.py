@@ -143,7 +143,7 @@ class DesignerApp:
             f"  • Transmission S21: {s21_db_val:.2f} dB\n"
             f"  • Isolation Level: {'EXCELLENT (<-25dB)' if s21_db_val < -25 else 'POOR CORNER BOUNDARY'}"
         )
-        self.em_3d_ax.text2D(0.02, 0.95, telemetry_text, transform=self.em_3d_ax.transAxes,
+        self.em_3d_ax.text2D(-0.20, 0.90, telemetry_text, transform=self.em_3d_ax.transAxes,
                              color='white', weight='bold', fontname='monospace', fontsize=9,
                              bbox=dict(facecolor='#1e1e1e', alpha=0.85, edgecolor='#444444', boxstyle='round,pad=0.5'))
 
@@ -561,7 +561,7 @@ class DesignerApp:
                 f"  • Transmission S21: {s21_db_val:.2f} dB\n"
                 f"  • Isolation Level: {'EXCELLENT (<-25dB)' if s21_db_val < -25 else 'POOR CORNER BOUNDARY'}"
             )
-            self.em_3d_ax.text2D(0.02, 0.95, telemetry_text, transform=self.em_3d_ax.transAxes,
+            self.em_3d_ax.text2D(-0.20, 0.90, telemetry_text, transform=self.em_3d_ax.transAxes,
                                  color='white', weight='bold', fontname='monospace', fontsize=9,
                                  bbox=dict(facecolor='#1e1e1e', alpha=0.85, edgecolor='#444444', boxstyle='round,pad=0.5'))
 
