@@ -8,3 +8,4 @@ from .choke_designer import ChokeBlockDesigner
 from .bias_feedback_designer import BiasFeedbackDesigner
 from .thermal_advisor import ThermalAdvisor
 from .transmission_line_suite import TransmissionLineSuite
+from .microstrip_stub_bias_designer import MicrostripStubBiasDesigner

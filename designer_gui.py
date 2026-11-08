@@ -22,6 +22,7 @@ from rf import (
     BiasFeedbackDesigner,
     ThermalAdvisor,
     TransmissionLineSuite,
+    MicrostripStubBiasDesigner,
 )
 
 class DesignerApp:
@@ -39,6 +40,7 @@ class DesignerApp:
         self.bias_feedback = BiasFeedbackDesigner(loader_instance=self.loader, z0=50.0)
         self.thermals = ThermalAdvisor(loader_instance=self.loader)
         self.t_lines = TransmissionLineSuite(loader_instance=self.loader, z0=50.0)
+        self.stub_designer = MicrostripStubBiasDesigner(loader_instance=self.loader, z0=50.0)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -294,9 +296,28 @@ class DesignerApp:
         old_stdout = sys.stdout
         sys.stdout = log_capture
 
+        ## XXX hacked in.
+        # Sync runtime updates across your distributed microstrip calculator parameters
+        board_name = self.board_type_var.get()
+        substrate_profiles = {
+            "FR-4 Standard (1.6mm)": {"er": 4.2, "h": 1.6},
+            "Rogers RO3003 (10mil)": {"er": 3.00, "h": 0.254},
+            "Rogers RO4003C (20mil)": {"er": 3.38, "h": 0.508},
+            "Rogers RO4350B (30mil)": {"er": 3.48, "h": 0.762},
+        }
+        profile = substrate_profiles.get(board_name, {"er": 4.2, "h": 1.6})
+        self.stub_designer.er = profile["er"]
+        self.stub_designer.h_mm = profile["h"]
+
         try:
-            self.choke_block.design_bias_choke()
-            self.choke_block.design_dc_block()
+            # Determine topology switch execution based on operational frequency ceiling limits
+            if self.loader.f_max_mhz >= 2000.0:
+                print("\n[!] Frequency > 2.0 GHz: Executing Distributed Planar Layout Calculations...")
+                self.stub_designer.design_radial_stub_network(stub_angle_deg=60, num_stages=2)
+            else:
+                print("\n[*] Low-Frequency Window Active: Standard SMD footprint design active.")
+                self.choke_block.design_bias_choke()
+                self.choke_block.design_dc_block()
 
             self.bias_feedback.design_feedback_loop()
             self.bias_feedback.design_active_dc_bias(
@@ -314,9 +335,11 @@ class DesignerApp:
 
             # Match and calculate electrical characteristics exactly at the center of your targeted working band
             self.t_lines.design_lc_matching(target_freq_mhz=self.loader.f_center_mhz)
+            # Map dynamic height parameter in mils (h_mm * 39.3701)
+            active_h_mils = profile["h"] * 39.3701
             er_eff, _ = self.t_lines.calculate_microstrip_electrical_length(
-                h_mils=62.0,
-                er=4.2,
+                h_mils=active_h_mils,
+                er=profile["er"],
                 target_deg=90.0,
                 target_freq_mhz=self.loader.f_center_mhz,
             )
@@ -390,7 +413,14 @@ class DesignerApp:
         rpt_file = "gui_report.md"
 
         try:
-            serialize_pcb_layout(output_filename=lay_file, trace_width_mils=best_w)
+            # Determine if the active frequency profile demands a distributed planar stub
+            stub_pass = self.stub_designer if self.loader.f_max_mhz >= 2000.0 else None
+
+            serialize_pcb_layout(
+                output_filename=lay_file,
+                trace_width_mils=best_w,
+                stub_engine_instance=stub_pass
+            )
             serialize_schematic(output_filename=sch_file)
 
             # Re-compute active parameters to pass down spatial trace telemetry live maps
@@ -406,7 +436,8 @@ class DesignerApp:
                 f_center=self.loader.f_center_mhz,
                 z0=self.z0,
                 tdr_distance=dist_axis,
-                tdr_impedance=z_profile
+                tdr_impedance=z_profile,
+                stub_engine_instance=self.stub_designer if self.loader.f_max_mhz >= 2000.0 else None
             )
 
             messagebox.showinfo(

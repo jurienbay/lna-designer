@@ -20,6 +20,7 @@ from rf import (
     BiasFeedbackDesigner,
     ThermalAdvisor,
     TransmissionLineSuite,
+    MicrostripStubBiasDesigner,
 )
 
 
@@ -144,6 +145,7 @@ if __name__ == "__main__":
     loader = SParameterLoader()
     loader.load(args.s2p_file, f_min_override=args.fmin, f_max_override=args.fmax)
 
+    # Execute the analytical hardware design methods
     visualizer = RFPerformanceVisualizer(loader_instance=loader)
     stability = StabilityAnalyzer(loader_instance=loader, z0=args.z0)
     choke_block = ChokeBlockDesigner(loader_instance=loader, z0=args.z0)
@@ -151,9 +153,25 @@ if __name__ == "__main__":
     thermals = ThermalAdvisor(loader_instance=loader)
     t_lines = TransmissionLineSuite(loader_instance=loader, z0=args.z0)
 
-    # Execute the analytical hardware design methods
-    choke_block.design_bias_choke(srf_safety_factor=args.srf_safety)
-    choke_block.design_dc_block()
+    # Fetch structural substrate properties dynamically from CLI configurations
+    substrate_profiles = {
+        "FR-4 Standard (1.6mm)": {"er": 4.2, "h_mm": 1.6, "h_mils": 62.0},
+        "Rogers RO3003 (10mil)": {"er": 3.00, "h_mm": 0.254, "h_mils": 10.0},
+        "Rogers RO4003C (20mil)": {"er": 3.38, "h_mm": 0.508, "h_mils": 20.0},
+        "Rogers RO4350B (30mil)": {"er": 3.48, "h_mm": 0.762, "h_mils": 30.0},
+    }
+    prof = substrate_profiles.get(args.board_type, substrate_profiles["FR-4 Standard (1.6mm)"])
+
+    # Sync runtime updates across your distributed microstrip calculator parameters
+    stub_designer = MicrostripStubBiasDesigner(loader_instance=loader, er=prof["er"], h_mm=prof["h_mm"], z0=args.z0)
+
+    if loader.f_max_mhz >= 2000.0:
+        print("\n[!] Frequency >= 2.0 GHz: Executing Distributed Planar Layout Calculations...")
+        stub_designer.design_radial_stub_network(stub_angle_deg=60, num_stages=2)
+    else:
+        print("\n[*] Low-Frequency Window Active: Standard SMD footprint design active.")
+        choke_block.design_bias_choke(srf_safety_factor=args.srf_safety)
+        choke_block.design_dc_block()
 
     bias_feedback.design_feedback_loop()
     bias_feedback.design_active_dc_bias(v_cc=args.vcc, v_d=8.0, i_d=0.234)
@@ -162,21 +180,17 @@ if __name__ == "__main__":
         t_ambient_c=args.t_amb, v_d=8.0, i_d=0.234, theta_jc=29.3, board_type=args.board_type
     )
 
-    # Calculate microstrip trace sizing configurations for standard 1.6mm 2-layer FR4 boards
+    # Calculate microstrip trace sizing configurations
     if args.gcpw_mode:
-        # Run coplanar synthesis using a standard 10 mil manufacturing isolation clearance mask gap
-        best_w, s_gap = t_lines.calculate_pcb_gcpw(
-            h_mils=62.0, er=4.2, t_oz=1.0, default_gap_mils=10.0
-        )
+        best_w, s_gap = t_lines.calculate_pcb_gcpw(board_type=args.board_type)
     else:
-        # Default back to original standalone microstrip calculation line
-        t_lines.calculate_pcb_microstrip(h_mils=62.0, er=4.2, t_oz=1.0)
+        best_w = t_lines.calculate_microstrip(board_type=args.board_type)
 
     # Synthesise lumped-element L-C matches at target evaluation frequency
     t_lines.design_lc_matching(target_freq_mhz=args.freq_eval)
     # Length matching, Attenuator sizing, and Markdown generation
     t_lines.calculate_microstrip_electrical_length(
-        h_mils=62.0, er=4.2, target_deg=90.0, target_freq_mhz=args.freq_eval
+        h_mils=prof["h_mils"], er=prof["er"], target_deg=90.0, target_freq_mhz=args.freq_eval
     )
     t_lines.design_fixed_attenuator_pad(target_attn_db=args.attn_pad)
 
@@ -191,7 +205,8 @@ if __name__ == "__main__":
         f_center=loader.f_center_mhz,
         z0=args.z0,
         tdr_distance=dist_vec,
-        tdr_impedance=z_vec
+        tdr_impedance=z_vec,
+        stub_engine_instance=stub_designer if loader.f_max_mhz >= 2000.0 else None
     )
 
     # To grab the calculated value seamlessly without changing your existing function prints,
@@ -208,7 +223,11 @@ if __name__ == "__main__":
             min_err = abs(zo_calc - args.z0)
             best_w = w_check
 
-    serialize_pcb_layout(output_filename=args.pcb_path, trace_width_mils=best_w)
+    serialize_pcb_layout(
+        output_filename=args.pcb_path,
+        trace_width_mils=best_w,
+        stub_engine_instance=stub_designer if loader.f_max_mhz >= 2000.0 else None
+    )
     serialize_schematic(output_filename=args.sch_path)
 
     # Handle plotting visibility based on user flags

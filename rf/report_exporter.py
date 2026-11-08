@@ -1,5 +1,6 @@
 ## Copyright (C) <2026>, <Edward O'Callaghan>, All rights reserved.
 
+import numpy as np
 from termcolor import colored
 
 
@@ -38,10 +39,12 @@ class MarkdownDocument:
         return "\n".join(lines)
 
 
-def serialize_markdown_report(output_filename, f_min, f_max, f_center, z0):
+def serialize_markdown_report(output_filename, f_min, f_max, f_center, z0, tdr_distance=None, tdr_impedance=None, stub_engine_instance=None):
     """
     Builds and saves a verified procurement design document graph to disk.
+    Now dynamically captures planar microstrip radial stub layout clearances.
     """
+    import math
     doc = MarkdownDocument()
     doc.add_header("Automated RF Hardware Design Report", level=1)
     doc.add_paragraph("Generated Profile Analysis Suite for Mini-Circuits `.s2p` Device Networks.")
@@ -53,20 +56,47 @@ def serialize_markdown_report(output_filename, f_min, f_max, f_center, z0):
     doc.add_bullet("Reference Port Line Match Target", f"{z0} Ohms")
     doc.add_paragraph("")
 
-    doc.add_header("2. Mandatory Component Sourcing Bill of Materials (BOM)", level=2)
+    # --- DYNAMIC DISTRIBUTED PLANAR STUB NETWORK TELEMETRY LOG ---
+    if stub_engine_instance is not None and f_max >= 2000.0:
+        doc.add_header("2. Distributed Microstrip Radial Stub Geometric Parameters", level=2)
+        doc.add_paragraph("High-frequency operational ceiling requires distributed etching geometry instead of discrete coils:")
+
+        # Pull parameters dynamically from matching synthesis equations
+        z_high = 100.0
+        w_high, _ = stub_engine_instance.calculate_microstrip_w_and_eff(z_high)
+        _, er_eff_stub = stub_engine_instance.calculate_microstrip_w_and_eff(stub_engine_instance.z0)
+
+        lambda_g = stub_engine_instance.c0 / ((f_center * 1e6) * math.sqrt(er_eff_stub))
+        radius_r_mm = (lambda_g / 4) * 1000
+        angle_deg = 60.0
+        outer_arc_w_mm = 2 * radius_r_mm * math.sin(math.radians(angle_deg) / 2)
+
+        doc.add_bullet("Stub Topology Mode", f"Cascaded {angle_deg}° Planar Sector Element")
+        doc.add_bullet("High-Z Trace Width ($W_{{high}}$)", f"{w_high:.3f} mm (Targeting {z_high} \u03a9)")
+        doc.add_bullet("Fundamental Radial Radius (R)", fr"{radius_r_mm:.2f} mm ($\lambda/4$ Resonant Node)")
+        doc.add_bullet("Throat Opening Entrance Width", f"{w_high:.3f} mm")
+        doc.add_bullet("Outer Segment Arc Span Width", f"{outer_arc_w_mm:.2f} mm")
+        doc.add_paragraph("")
+
+    # --- MANDATORY HARDWARE BOM ---
+    doc.add_header("3. Mandatory Component Sourcing Bill of Materials (BOM)", level=2)
 
     headers = ["Circuit Location Block", "Component Specified Value / Design Constraint Target"]
+
+    # Update BOM row text dynamically depending on layout modes
+    choke_description = "Distributed Microstrip Radial Stub Wedge (Etched Front Copper Layout)" if f_max >= 2000.0 else "Sized relative to target operating band SRF safety windows"
+
     rows = [
-        ["RF Coupling Bias Choke Inductor", "Sized relative to target operating band SRF safety windows"],
+        ["RF Coupling Bias Choke Inductor", choke_description],
         ["Input/Output DC Blocks", "High-Q microwave ceramic caps optimized for band center resonance"],
         ["DC Biasing Resistor (Rbias)", "Heavy surface-area package to safely survive case thermal margins"],
-        ["Controlled Transmission Track", "Trace trace width dimensions adjusted dynamically to lamination choices"]
+        ["Controlled Transmission Track", "Trace width dimensions adjusted dynamically to lamination choices"]
     ]
     doc.add_table(headers, rows)
 
     # --- STRUCTURAL TELEMETRY SPATIAL LOGGING MATRIX ---
     if tdr_distance is not None and tdr_impedance is not None:
-        doc.add_header("3. PCB Spatial Impedance Mismatch Analysis (TDR Log)", level=2)
+        doc.add_header("4. PCB Spatial Impedance Mismatch Analysis (TDR Log)", level=2)
 
         # Calculate worst-case absolute layout step error boundary metrics
         dev_from_50 = np.abs(tdr_impedance - z0)
@@ -80,7 +110,7 @@ def serialize_markdown_report(output_filename, f_min, f_max, f_center, z0):
         doc.add_paragraph("")
 
         # Programmatically sample spatial down-sampled checkpoints to prevent excessive text growth
-        doc.add_header("4. Down-Sampled Spatial Transmission Checkpoints", level=3)
+        doc.add_header("5. Down-Sampled Spatial Transmission Checkpoints", level=3)
         headers_tdr = ["Layout Position Node (mm)", "Calculated Instantaneous Impedance (\u03a9)"]
         rows_tdr = []
 

@@ -1,9 +1,10 @@
 ## Copyright (C) <2026>, <Edward O'Callaghan>, All rights reserved.
 
+import math
 from termcolor import colored
 
 
-def serialize_pcb_layout(output_filename, trace_width_mils):
+def serialize_pcb_layout(output_filename, trace_width_mils, stub_engine_instance=None):
     """
     Generates a native KiCad PCB board file from scratch using the object-oriented
     data structures inside the pycbnew library.
@@ -11,9 +12,7 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
     try:
         from pycbnew.primitives.project import KProject
         from pycbnew.primitives.layer import Layer
-        from pycbnew.primitives.footprint import KFootprint
-        from pycbnew.primitives.footprint import KFootprintProperty
-        from pycbnew.primitives.footprint import KPad
+        from pycbnew.primitives.footprint import KFootprint, KFootprintProperty, KPad
         from pycbnew.primitives.net import KNet
         from pycbnew.primitives.zone import KZone
         from pycbnew.utils.geometry import Point
@@ -32,9 +31,11 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
     net1 = KNet(1, "one")
     net2 = KNet(2, "two")
     net3 = KNet(3, "three")
+    net4 = KNet(4, "bias_stub")  # Dedicated net reference mapping for the etched stub copper node
     proj.add(net1)
     proj.add(net2)
     proj.add(net3)
+    proj.add(net4)
 
     fp = KFootprint("Package_TO_SOT_SMD:SOT-89-3",
                     at=Point(0.0, 0.0),
@@ -56,6 +57,37 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
 
     proj.add(fp)
 
+    # --- PLANAR RADIAL STUB DISTRIBUTED LAYER GENERATOR ---
+    if stub_engine_instance is not None:
+        # 1. Fetch characterization geometry via the active engine instance math hooks
+        z_high = 100.0
+        w_high, _ = stub_engine_instance.calculate_microstrip_w_and_eff(z_high)
+
+        f_target = stub_engine_instance.loader.f_center_mhz * 1e6
+        _, er_eff_stub = stub_engine_instance.calculate_microstrip_w_and_eff(stub_engine_instance.z0)
+        lambda_g = stub_engine_instance.c0 / (f_target * math.sqrt(er_eff_stub))
+        radius_r_mm = (lambda_g / 4) * 1000
+
+        # 2. Establish a placement anchor point relative to the device's pins
+        # Injection point located right above the SOT-89 footprint center
+        throat_x, throat_y = 0.0, -5.0
+        angle_rad = math.radians(60.0)
+
+        # 3. Derive absolute geometric multi-vertex wedge boundary nodes via coordinate rotation
+        stub_points = [
+            Point(throat_x - (w_high / 2.0), throat_y),  # Base Left Throat corner
+            Point(throat_x - (radius_r_mm * math.sin(angle_rad / 2.0)), throat_y - radius_r_mm),  # Arc Top-Left boundary
+            Point(throat_x + (radius_r_mm * math.sin(angle_rad / 2.0)), throat_y - radius_r_mm),  # Arc Top-Right boundary
+            Point(throat_x + (w_high / 2.0), throat_y)   # Base Right Throat corner
+        ]
+
+        # 4. Instantiate and push the physical etched polygon zone structure onto the object array
+        stub_zone = KZone(net=net4, layer="F.Cu")
+        stub_zone.add_points(stub_points)
+        proj.add(stub_zone)
+        print(f"[+] Appended Planar Wedge Zone: {radius_r_mm:.2f}mm Radius Stub added at coordinate ({throat_x}, {throat_y})")
+
+    # --- CONTROLLED 50 OHM TRACK COUPLING IN/OUT STRUCTURES ---
     in_zone = KZone(net=net2, layer="F.Cu")
     in_zone.add_points([
         Point(-40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
