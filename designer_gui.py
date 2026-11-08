@@ -17,6 +17,7 @@ from rf import (
     serialize_schematic,
     serialize_markdown_report,
     RFPerformanceVisualizer,
+    StabilityAnalyzer,
 )
 
 # Import the designer class core from your existing file
@@ -41,6 +42,7 @@ class DesignerApp:
         self.loader = SParameterLoader()
         self.designer = MiniCircuitsLinearAmpDesigner(loader_instance=self.loader, z0=50.0)
         self.visualizer = RFPerformanceVisualizer(loader_instance=self.loader)
+        self.stability = StabilityAnalyzer(loader_instance=self.loader, z0=50.0)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -298,7 +300,7 @@ class DesignerApp:
         self.visualizer.plot_linear_performance(embed_fig=self.plot_fig)
         self.plot_canvas.draw()
 
-        self.designer.plot_stability_circles(
+        self.stability.plot_stability_circles(
             target_freq_mhz=self.loader.f_center_mhz, embed_fig=self.smith_fig
         )
         self.smith_canvas.draw()
