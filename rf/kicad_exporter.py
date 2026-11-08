@@ -9,8 +9,13 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
     data structures inside the pycbnew library.
     """
     try:
-        import pycbnew.module as kmod
-        import pycbnew.pcb as kpcb
+        from pycbnew.primitives.project import KProject
+        from pycbnew.primitives.layer import Layer
+        from pycbnew.primitives.footprint import KFootprint
+        from pycbnew.primitives.footprint import KFootprintProperty
+        from pycbnew.primitives.footprint import KPad
+        from pycbnew.primitives.zone import KZone
+        from pycbnew.utils.geometry import Point
     except ImportError:
         raise ImportError(
             "[!] Critical Dependency Error: 'kicad-pycbnew' library is missing or cannot be imported.\n"
@@ -21,44 +26,47 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
     print(" 10. STRUCTURAL KICAD PCB PRODUCTION LAYOUT GENERATOR (VIA PYCBNEW)")
     print("=" * 75)
 
-    pcb = kpcb.Board()
-    pcb.set_thickness(1.6)
+    proj = KProject(filename=output_filename, copper_layers=2)
 
-    pcb.add_layer(0, "F.Cu", "signal")
-    pcb.add_layer(31, "B.Cu", "signal")
+    fp = KFootprint("Package_TO_SOT_SMD:SOT-89-3",
+                    at=Point(0.0, 0.0),
+                    side=KFootprint.Side.Front,
+                    default_net=None)
 
-    fp = kmod.Footprint("Package_TO_SOT_SMD:SOT-89-3", layer="F.Cu", center=(0.0, 0.0))
-    fp.set_description("SOT-89 MMIC Package with Integrated Thermal Matrix")
+    KFootprintProperty(fp, data=[], type="Description", value="SOT-89 MMIC Package with Integrated Thermal Matrix")
 
-    fp.add_pad(kmod.Pad(num="1", type="smd", shape="rect", pos=(-1.5, 2.0), size=(0.65, 1.5)))
-    fp.add_pad(kmod.Pad(num="2", type="smd", shape="rect", pos=(0.0, 1.0), size=(1.8, 3.5)))
-    fp.add_pad(kmod.Pad(num="3", type="smd", shape="rect", pos=(1.5, 2.0), size=(0.65, 1.5)))
+    KPad(fp, data = ["pad", "", KPad.Type.Smd, KPad.Shape.Rect, ['at', -1.5, 2.0], ['size', 0.65, 1.5] ])
+    KPad(fp, data = ["pad", "", KPad.Type.Smd, KPad.Shape.Rect, ['at', 0.0, 1.0], ['size', 1.8, 3.5] ])
+    KPad(fp, data = ["pad", "", KPad.Type.Smd, KPad.Shape.Rect, ['at', 1.5, 2.0], ['size', 0.65, 1.5] ])
 
     for x_pos in [-0.4, 0.4]:
         for y_pos in [-0.3, 0.7, 1.7]:
-            fp.add_pad(kmod.Pad(
-                num="2", type="thru_hole", shape="circle",
-                pos=(x_pos, y_pos), size=(0.6, 0.6), drill=0.3, net=0
-            ))
-    pcb.add_footprint(fp)
+            KPad(fp,
+                data = ["pad", "", KPad.Type.Thru_hole, KPad.Shape.Circle, ['at', x_pos, y_pos],
+                ['size', 0.6, 0.6], ['drill', '0.3'], ['net', 0]]
+            )
 
-    in_zone = pcb.add_zone(net=1, layer="F.Cu", connection="smooth")
-    in_zone.set_polygon_points([
+    proj.add(fp)
+
+    in_zone = KZone(net=1, layer="F.Cu")
+    in_zone.add_points([
         (-40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
         (-1.5, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
         (-1.5, 2.0 + (trace_width_mils * 0.0254 / 2.0)),
         (-40.0, 2.0 + (trace_width_mils * 0.0254 / 2.0))
     ])
 
-    out_zone = pcb.add_zone(net=2, layer="F.Cu", connection="smooth")
-    out_zone.set_polygon_points([
+    out_zone = KZone(net=2, layer="F.Cu")
+    out_zone.add_points([
         (1.5, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
         (40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
         (40.0, 2.0 + (trace_width_mils * 0.0254 / 2.0)),
         (1.5, 2.0 + (trace_width_mils * 0.0254 / 2.0))
     ])
 
-    pcb.serialize(output_filename)
+    proj.save()
+    proj.export_svg()
+
     print(colored(f"[+] KiCad PCB Generation via pycbnew Complete! Saved to '{output_filename}'", "green", attrs=["bold"]))
     return f"[+] KiCad PCB generated: {output_filename}"
 
