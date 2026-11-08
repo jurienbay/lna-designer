@@ -21,6 +21,7 @@ from rf import (
     ChokeBlockDesigner,
     BiasFeedbackDesigner,
     ThermalAdvisor,
+    TransmissionLineSuite,
 )
 
 # Import the designer class core from your existing file
@@ -49,6 +50,7 @@ class DesignerApp:
         self.choke_block = ChokeBlockDesigner(loader_instance=self.loader, z0=50.0)
         self.bias_feedback = BiasFeedbackDesigner(loader_instance=self.loader, z0=50.0)
         self.thermals = ThermalAdvisor(loader_instance=self.loader)
+        self.t_lines = TransmissionLineSuite(loader_instance=self.loader, z0=50.0)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -314,23 +316,23 @@ class DesignerApp:
             )
 
             if self.layout_mode.get() == "Standard Microstrip":
-                self.designer.calculate_pcb_microstrip(
+                self.t_lines.calculate_pcb_microstrip(
                     board_type=self.board_type_var.get()
                 )
             else:
-                _best_w, _ = self.designer.calculate_pcb_gcpw(
+                _best_w, _ = self.t_lines.calculate_pcb_gcpw(
                     board_type=self.board_type_var.get()
                 )
 
             # Match and calculate electrical characteristics exactly at the center of your targeted working band
-            self.designer.design_lc_matching(target_freq_mhz=self.loader.f_center_mhz)
-            er_eff, _ = self.designer.calculate_microstrip_electrical_length(
+            self.t_lines.design_lc_matching(target_freq_mhz=self.loader.f_center_mhz)
+            er_eff, _ = self.t_lines.calculate_microstrip_electrical_length(
                 h_mils=62.0,
                 er=4.2,
                 target_deg=90.0,
                 target_freq_mhz=self.loader.f_center_mhz,
             )
-            self.designer.design_fixed_attenuator_pad(
+            self.t_lines.design_fixed_attenuator_pad(
                 target_attn_db=self.attn_var.get()
             )
 
@@ -386,11 +388,11 @@ class DesignerApp:
 
         # Handle local track dimensions queries relative to dropdown states
         if self.layout_mode.get() == "Standard Microstrip":
-            self.designer.calculate_pcb_microstrip(
+            self.t_lines.calculate_pcb_microstrip(
                 board_type=self.board_type_var.get()
             )
         else:
-            _best_w, _ = self.designer.calculate_pcb_gcpw(
+            _best_w, _ = self.t_lines.calculate_pcb_gcpw(
                 board_type=self.board_type_var.get()
             )
 
@@ -404,7 +406,7 @@ class DesignerApp:
             serialize_schematic(output_filename=sch_file)
 
             # Re-compute active parameters to pass down spatial trace telemetry live maps
-            er_eff, _ = self.designer.calculate_microstrip_electrical_length(
+            er_eff, _ = self.t_lines.calculate_microstrip_electrical_length(
                 h_mils=62.0, er=4.2, target_deg=90.0, target_freq_mhz=self.loader.f_center_mhz
             )
             dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.designer.z0)
