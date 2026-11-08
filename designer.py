@@ -20,6 +20,13 @@ from rf import (
 
 
 class MiniCircuitsLinearAmpDesigner:
+    SUBSTRATE_PROFILES = {
+        "FR-4 Standard (1.6mm)": {"er": 4.2, "h_mils": 62.0},
+        "Rogers RO3003 (10mil)": {"er": 3.00, "h_mils": 10.0},
+        "Rogers RO4003C (20mil)": {"er": 3.38, "h_mils": 20.0},
+        "Rogers RO4350B (30mil)": {"er": 3.48, "h_mils": 30.0},
+    }
+
     def __init__(self, loader_instance, z0=50):
         """
         Initializes the designer by loading the Mini-Circuits Touchstone .s2p data.
@@ -365,14 +372,6 @@ class MiniCircuitsLinearAmpDesigner:
         )
         print("=" * 75)
         return r_bias_ideal
-
-    # Define a clean material matrix map as a class constant variable profile
-    SUBSTRATE_PROFILES = {
-        "FR-4 Standard (1.6mm)": {"er": 4.2, "h_mils": 62.0},
-        "Rogers RO3003 (10mil)": {"er": 3.00, "h_mils": 10.0},
-        "Rogers RO4003C (20mil)": {"er": 3.38, "h_mils": 20.0},
-        "Rogers RO4350B (30mil)": {"er": 3.48, "h_mils": 30.0},
-    }
 
     def calculate_pcb_microstrip(self, board_type="FR-4 Standard (1.6mm)", t_oz=1.0):
         """
