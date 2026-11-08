@@ -23,3 +23,19 @@ Good luck, fixes welcome.
                           |
 RF Signal In ═════════════╩═════════════ RF Signal Out (Main 50Ω Trace)
 ```
+
+## Automated Hardware Test Bench Routine Gen
+
+```text
+┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+│     Desktop     │ USB   │ Vector Network  │ RF    │  Your Physical  │
+│  Design Suite   ├──────►│ Analyzer (VNA)  ├──────►│ Manufactured PCB│
+│ (Python/PyVISA) │       └─────────────────┘       └─────────────────┘
+└───────┬─────────┘
+        │ USB
+        ▼
+┌─────────────────┐ Power
+│ Programmable DC │───────► [Vcc Pad]
+│  Power Supply   │
+└─────────────────┘
+```
