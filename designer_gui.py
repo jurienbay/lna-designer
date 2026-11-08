@@ -291,6 +291,8 @@ class DesignerApp:
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.grid(row=0, column=1, sticky="nsew")
         main_frame.columnconfigure(1, weight=1)
+        # Register the virtual event hook to track tab selection changes
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_notebook_tab_switched)
 
         # Tab 1: Terminal Matrix Logs Console
         self.log_text = tk.Text(
@@ -390,6 +392,26 @@ class DesignerApp:
             foreground="#2b2b2b" if sys.platform == "win32" else "#a9b7c6"
         )
         status_lbl.pack(side=tk.RIGHT, padx=5)
+
+    def on_notebook_tab_switched(self, event):
+        """Monitors tab navigation changes and pauses the 3D wave thread if focus leaves tab 6."""
+        # Only check tab indices if data records exist to prevent initialization timing race conditions
+        if not self.loader.network or not self.animating:
+            return
+
+        try:
+            # Query the index string name of the currently selected workbook view tab panel
+            active_tab_index = self.notebook.index(self.notebook.select())
+
+            # If active tab index is not Tab 6 (index 5 since counts start at 0), pause the loop
+            if active_tab_index != 5:
+                # Toggle flag to False and restore text state layout properties cleanly
+                self.animating = False
+                self.play_btn.config(text="▶ Play Wave Propagation")
+                if self.anim_loop_id:
+                    self.root.after_cancel(self.anim_loop_id)
+        except Exception:
+            pass # Prevent thread exception noise during early runtime window instantiation teardowns
 
     def on_secure_close(self):
         """
