@@ -4,25 +4,23 @@
 
 import math
 
-import matplotlib.pyplot as plt
 import numpy as np
-import skrf as rf
 from termcolor import colored
 
 from rf import (
-    SParameterLoader,
-    serialize_pcb_layout,
-    serialize_schematic,
-    serialize_markdown_report,
-    RFPerformanceVisualizer,
-    StabilityAnalyzer,
-    ChokeBlockDesigner,
     BiasFeedbackDesigner,
+    ChokeBlockDesigner,
+    MicrostripStubBiasDesigner,
+    RFPerformanceVisualizer,
+    SParameterLoader,
+    StabilityAnalyzer,
     ThermalAdvisor,
     TransmissionLineSuite,
-    MicrostripStubBiasDesigner,
+    calculate_spatial_tdr,
+    serialize_markdown_report,
+    serialize_pcb_layout,
+    serialize_schematic,
 )
-
 
 if __name__ == "__main__":
     import argparse

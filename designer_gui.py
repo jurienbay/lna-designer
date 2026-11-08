@@ -13,19 +13,20 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from rf import (
-    SParameterLoader,
-    calculate_spatial_tdr,
-    serialize_pcb_layout,
-    serialize_schematic,
-    serialize_markdown_report,
-    RFPerformanceVisualizer,
-    StabilityAnalyzer,
-    ChokeBlockDesigner,
     BiasFeedbackDesigner,
+    ChokeBlockDesigner,
+    MicrostripStubBiasDesigner,
+    RFPerformanceVisualizer,
+    SParameterLoader,
+    StabilityAnalyzer,
     ThermalAdvisor,
     TransmissionLineSuite,
-    MicrostripStubBiasDesigner,
+    calculate_spatial_tdr,
+    serialize_markdown_report,
+    serialize_pcb_layout,
+    serialize_schematic,
 )
+
 
 class DesignerApp:
     def __init__(self, root):
