@@ -109,20 +109,22 @@ class MicrostripStubBiasDesigner:
                 spacing_len_mm = (lambda_spacing / 4) * 1000
                 print(f"    - Inter-Stage Line:      {spacing_len_mm:.2f} mm separation length ({z_high}Ω trace)")
 
-    def generate_3d_mesh_data(self, stub_angle_deg=60, phase_shift=0.0):
+    def generate_3d_mesh_data(self, stub_angle_deg=60, phase_shift=0.0, eval_freq_mhz=None, mode='cw'):
         """
         Synthesizes raw 3D mesh arrays modeling the substrate bulk, etched copper planes,
         3D vertical thermal via cylinders, and active time-dependent RF electric field waves.
         """
-        f_center = self.loader.f_center_mhz * 1e6
+        target_f_mhz = eval_freq_mhz if eval_freq_mhz is not None else self.loader.f_center_mhz
+        f_hz = target_f_mhz * 1e6
+
         _, er_eff_stub = self.calculate_microstrip_w_and_eff(self.z0)
         z_high = 100.0
         w_high, _ = self.calculate_microstrip_w_and_eff(z_high)
 
-        lambda_g = self.c0 / (f_center * math.sqrt(er_eff_stub))
+        lambda_g = self.c0 / (f_hz * math.sqrt(er_eff_stub))
         radius_r_mm = (lambda_g / 4) * 1000
 
-        # Generate Base Substrate Block
+        # Substrate Block
         sub_x, sub_y = np.meshgrid(np.linspace(-25, 25, 30), np.linspace(-30, 10, 30))
         sub_z_top = np.zeros_like(sub_x)
         sub_z_bot = np.zeros_like(sub_x) - self.h_mm
@@ -149,20 +151,28 @@ class MicrostripStubBiasDesigner:
             via_cylinders.append((vx_mesh, vy_mesh, Z))
 
         # Generate Time-Dependent Signal Wave Propagation Trace
-        wave_y = np.linspace(-5.0, 2.0, 40)
+        wave_y = np.linspace(-15.0, 2.0, 60)
         wave_x = np.zeros_like(wave_y)
         beta = (2 * math.pi) / (lambda_g * 1000)
 
-        # Electric field component (Vertical displacement Z)
-        wave_z_amplitude = 0.4 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
-
-        # Quasi-TEM Perpendicular Magnetic Field component (Horizontal deflection X)
-        # Shifted in phase / space to track Maxwell's curl equations naturally
-        wave_h_x = 3.5 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
+        if mode == 'cw':
+            wave_z = 0.4 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
+            wave_hx = 3.5 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
+        else:
+            pulse_center = -15.0 + (phase_shift * 3.5)
+            pulse_envelope = np.exp(-((wave_y - pulse_center) / 2.0)**2)
+            if pulse_center > -5.0:
+                reflected_center = -5.0 - (pulse_center + 5.0)
+                reflected_envelope = -0.8 * np.exp(-((wave_y - reflected_center) / 2.0)**2)
+                wave_z = 0.4 * (pulse_envelope + reflected_envelope) * np.cos(beta * wave_y)
+            else:
+                wave_z = 0.4 * pulse_envelope * np.cos(beta * wave_y)
+            wave_hx = wave_z * 8.5
 
         return {
             "substrate": (sub_x, sub_y, sub_z_top, sub_z_bot),
             "stub_poly": (np.array(stub_x_pts), np.array(stub_y_pts), np.zeros_like(stub_x_pts) + 0.02),
             "vias": via_cylinders,
-            "wave_trace": (wave_x, wave_y, wave_z_amplitude, wave_h_x)
+            "wave_trace": (wave_x, wave_y, wave_z, wave_hx),
+            "target_freq": target_f_mhz
         }

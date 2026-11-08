@@ -50,6 +50,10 @@ class DesignerApp:
         self.current_phase = 0.0
         self.anim_loop_id = None
 
+        # New Diagnostic Variables
+        self.simulation_mode = tk.StringVar(value="cw")
+        self.live_freq_tuner_var = tk.DoubleVar(value=500.0)
+
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
         self.tamb_var = tk.DoubleVar(value=25.0)
@@ -83,58 +87,77 @@ class DesignerApp:
         if not self.animating:
             return
 
-        # Advance the wave's phase slice (omega * t)
-        self.current_phase += 0.15
-        if self.current_phase >= 2 * math.pi:
-            self.current_phase = 0.0
+        # Handle phase increments / reset envelope step boundaries for the TDR window loop
+        if self.simulation_mode.get() == "cw":
+            self.current_phase += 0.15
+            if self.current_phase >= 2 * math.pi:
+                self.current_phase = 0.0
+        else:
+            self.current_phase += 0.08
+            if self.current_phase >= 7.5:  # Let pulse scale pass out of frame viewport cleanly before wrap
+                self.current_phase = 0.0
 
-        # Fetch fresh time-dependent wave arrays
-        mesh_data = self.stub_designer.generate_3d_mesh_data(phase_shift=self.current_phase)
+        # Sync live slider string label text indicator lookups
+        f_tuned = self.live_freq_tuner_var.get()
+        self.freq_lbl.config(text=f"{f_tuned:.1f} MHz")
 
-        # Clear previous frame vector paths while keeping camera angles locked
-        curr_elev = self.em_3d_ax.elev
-        curr_azim = self.em_3d_ax.azim
-        self.em_3d_ax.clear()
-
-        # Redraw all elements for the new frame
-        sub_x, sub_y, z_top, z_bot = mesh_data["substrate"]
-        self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.1, edgecolor='none')
-        self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.2, edgecolor='none')
-
-        cu_x, cu_y, cu_z = mesh_data["stub_poly"]
-        self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.8, edgecolor='brown', linewidth=0.5)
-
-        for v_x, v_y, v_z in mesh_data["vias"]:
-            self.em_3d_ax.plot_surface(v_x, v_y, v_z, color='crimson', alpha=0.7, edgecolor='none')
-
-        wx, wy, wz, hx = mesh_data["wave_trace"]
-        self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=3.5, label='E-Field Vector Wave ($E_z$)')
-        for i in range(0, len(wy), 3):
-            self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=1.2)
-
-        # Overlay Orthogonal Pink/Magenta Magnetic Field Vector Arrows (H)
-        # Using 3D quiver to draw horizontal arrows wrapping right-angles around the track path
-        sample_stride = 2 # Prevent arrow crowding on layout screen
-        self.em_3d_ax.quiver(
-            wx[::sample_stride], wy[::sample_stride], np.zeros_like(wz)[::sample_stride], # Arrow origins
-            hx[::sample_stride], np.zeros_like(hx)[::sample_stride], np.zeros_like(hx)[::sample_stride], # Vector directions (X-axis offset)
-            color='deeppink', length=0.8, normalize=True, label='Magnetic Field ($H_x$)'
+        # Fetch parameterized mesh state maps
+        mesh_data = self.stub_designer.generate_3d_mesh_data(
+            phase_shift=self.current_phase,
+            eval_freq_mhz=f_tuned,
+            mode=self.simulation_mode.get()
         )
 
-        # Restore configuration properties and views
-        self.em_3d_ax.set_title(f"Live 3D EM Wave Propagation Solver (Phase: {self.current_phase:.2f} rad)")
-        self.em_3d_ax.set_xlabel("X-Axis (mm)")
-        self.em_3d_ax.set_ylabel("Y-Axis (mm)")
-        self.em_3d_ax.set_zlabel("Field Strength / Height (Z)")
+        # Clear previous frame vector paths while keeping camera angles locked
+        curr_elev, curr_azim = self.em_3d_ax.elev, self.em_3d_ax.azim
+        self.em_3d_ax.clear()
+
+        # Render Core Lamination Layers
+        sub_x, sub_y, z_top, z_bot = mesh_data["substrate"]
+        self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.08, edgecolor='none')
+        self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.15, edgecolor='none')
+
+        cu_x, cu_y, cu_z = mesh_data["stub_poly"]
+        self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.75, edgecolor='brown', linewidth=0.5)
+
+        # Render Fields traces
+        wx, wy, wz, hx = mesh_data["wave_trace"]
+        self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=2.5, label='E-Field Vector Wave ($E_z$)')
+        for i in range(0, len(wy), 3):
+            self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=0.8)
+
+        self.em_3d_ax.quiver(wx[::2], wy[::2], np.zeros_like(wz)[::2], hx[::2], np.zeros_like(hx)[::2], np.zeros_like(hx)[::2], color='deeppink', length=0.8, normalize=True, label='Magnetic Field ($H_x$)')
+
+        # --- DYNAMIC MATRIX HOOK: LIVE VIEWPORT S-PARAMETER CARDS INTERPOLATION ---
+        # Query your loaded network live to read attenuation levels at this specific slider frequency
+        s21_db_val = -35.0  # Safe default isolation attenuation boundary line
+        if self.loader.network is not None:
+            f_hz_query = f_tuned * 1e6
+            idx = np.argmin(np.abs(self.loader.network.f - f_hz_query))
+            s21_db_val = self.loader.network.s21.s_db[idx][0][0]
+
+        # Draw a live telemetry overlay board box directly inside the axes projection coordinates
+        telemetry_text = (
+            f"  [ RF COMPILER LIVE TELEMETRY ]\n"
+            f"  • Operation Freq : {f_tuned:.1f} MHz\n"
+            f"  • Transmission S21: {s21_db_val:.2f} dB\n"
+            f"  • Isolation Level: {'EXCELLENT (<-25dB)' if s21_db_val < -25 else 'POOR CORNER BOUNDARY'}"
+        )
+        self.em_3d_ax.text2D(0.02, 0.95, telemetry_text, transform=self.em_3d_ax.transAxes,
+                             color='white', weight='bold', fontname='monospace', fontsize=9,
+                             bbox=dict(facecolor='#1e1e1e', alpha=0.85, edgecolor='#444444', boxstyle='round,pad=0.5'))
+
+        # Global layout styling configurations
+        self.em_3d_ax.set_title("Real-Time Transmission Line Field Diagnostics", fontsize=10, weight='bold')
+        self.em_3d_ax.set_xlim(-25, 25)
+        self.em_3d_ax.set_ylim(-30, 10)
         self.em_3d_ax.set_zlim(-2.5, 1.5)
         self.em_3d_ax.view_init(elev=curr_elev, azim=curr_azim)
-        self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
 
         # Flush the buffer updates to the UI canvas
         self.em_3d_canvas.draw_idle()
-
-        # Schedule next frame update (~50ms delay for roughly 20 FPS)
-        self.anim_loop_id = self.root.after(50, self.run_animation_frame_tick)
+        # Schedule next frame update (~45ms delay for roughly 20 FPS)
+        self.anim_loop_id = self.root.after(45, self.run_animation_frame_tick)
 
     def build_ui(self):
         # Master Grid Layout Configurations
@@ -311,12 +334,30 @@ class DesignerApp:
         self.em_3d_canvas = FigureCanvasTkAgg(self.em_3d_fig, master=tab6_frame)
         self.em_3d_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # Play/Pause interactive media dock
-        media_btn_frame = ttk.Frame(tab6_frame)
-        media_btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+        # Enhanced Diagnostic Media Control Panel
+        dash_panel = ttk.LabelFrame(tab6_frame, text=" Interactive Diagnostic Controls ", padding="8")
+        dash_panel.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
 
-        self.play_btn = ttk.Button(media_btn_frame, text="▶ Play Wave Propagation", command=self.toggle_wave_animation)
-        self.play_btn.pack(side=tk.TOP, pady=5)
+        # Sub-grid column 1: Play state toggle and wave type profile selections
+        left_sub = ttk.Frame(dash_panel)
+        left_sub.pack(side=tk.LEFT, padx=10)
+
+        self.play_btn = ttk.Button(left_sub, text="▶ Play Wave Propagation", command=self.toggle_wave_animation)
+        self.play_btn.pack(side=tk.LEFT, padx=5)
+
+        ttk.Radiobutton(left_sub, text="Continuous Wave (CW)", variable=self.simulation_mode, value="cw").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(left_sub, text="Transient TDR Pulse Packet", variable=self.simulation_mode, value="tdr").pack(side=tk.LEFT, padx=5)
+
+        # Sub-grid column 2: Dynamic Real-time Frequency tuning scale slider
+        right_sub = ttk.Frame(dash_panel)
+        right_sub.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=20)
+
+        ttk.Label(right_sub, text="Live Tuning Frequency:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=5)
+        self.freq_slider = ttk.Scale(right_sub, from_=10.0, to=2000.0, variable=self.live_freq_tuner_var, orient=tk.HORIZONTAL)
+        self.freq_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        self.freq_lbl = ttk.Label(right_sub, text="500.0 MHz", font=("Courier", 9, "bold"))
+        self.freq_lbl.pack(side=tk.RIGHT, padx=5)
 
         self.notebook.add(tab6_frame, text=" 3D Structural EM Viewer ")
 
@@ -366,6 +407,8 @@ class DesignerApp:
             self.s2p_path_var.set(os.path.basename(fpath))
             self.fmin_var.set(round(self.loader.f_min_mhz, 1))
             self.fmax_var.set(round(self.loader.f_max_mhz, 1))
+            self.freq_slider.config(from_=round(self.loader.f_min_mhz, 1), to=round(self.loader.f_max_mhz, 1))
+            self.live_freq_tuner_var.set(round(self.loader.f_center_mhz, 1))
             self.status_msg_var.set(f"Loaded: {os.path.basename(fpath)} | Substrate Model Configured")
             self.recompute_all()
 
@@ -467,17 +510,24 @@ class DesignerApp:
             self.tdr_canvas.draw()
 
             # --- RENDER ADVANCED 3D EM STRUCTURAL VIEWPORT ---
-            mesh_data = self.stub_designer.generate_3d_mesh_data()
+            f_tuned = self.live_freq_tuner_var.get()
+
+            # Fetch the fully expanded diagnostic dataset matrix
+            mesh_data = self.stub_designer.generate_3d_mesh_data(
+                phase_shift=self.current_phase,
+                eval_freq_mhz=f_tuned,
+                mode=self.simulation_mode.get()
+            )
             self.em_3d_ax.clear()
 
             # Layer 1: Draw Substrate Box and Ground planes
             sub_x, sub_y, z_top, z_bot = mesh_data["substrate"]
-            self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.1, edgecolor='none')
-            self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.2, edgecolor='none')
+            self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.08, edgecolor='none')
+            self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.15, edgecolor='none')
 
             # Layer 2: Draw Etched Copper Radial Stub Wedge
             cu_x, cu_y, cu_z = mesh_data["stub_poly"]
-            self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.8, edgecolor='brown', linewidth=0.5)
+            self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.75, edgecolor='brown', linewidth=0.5)
 
             # Layer 3: Render 3D Stitched Thermal Vias through back-plane
             for v_x, v_y, v_z in mesh_data["vias"]:
@@ -486,26 +536,39 @@ class DesignerApp:
 
             # Layer 4: Render active Voltage/E-Field Wave Propagation paths
             wx, wy, wz, hx = mesh_data["wave_trace"]
-            # Primary Traveling wave entry track path line
-            self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=3.5, label='E-Field Vector Wave ($E_z$)')
-            # Add decorative standing wave directional drop indicators
+            self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=2.5, label='E-Field Vector Wave ($E_z$)')
             for i in range(0, len(wy), 3):
-                self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=1.2)
+                self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=0.8)
 
-            # Overlay Orthogonal Pink/Magenta Magnetic Field Vector Arrows (H)
-            # Using 3D quiver to draw horizontal arrows wrapping right-angles around the track path
-            sample_stride = 2 # Prevent arrow crowding on layout screen
+            # Overlay Orthogonal Perpendicular Magnetic Field Vector Arrows (H)
+            sample_stride = 2
             self.em_3d_ax.quiver(
-                wx[::sample_stride], wy[::sample_stride], np.zeros_like(wz)[::sample_stride], # Arrow origins
-                hx[::sample_stride], np.zeros_like(hx)[::sample_stride], np.zeros_like(hx)[::sample_stride], # Vector directions (X-axis offset)
+                wx[::sample_stride], wy[::sample_stride], np.zeros_like(wz)[::sample_stride],
+                hx[::sample_stride], np.zeros_like(hx)[::sample_stride], np.zeros_like(hx)[::sample_stride],
                 color='deeppink', length=0.8, normalize=True, label='Magnetic Field ($H_x$)'
             )
 
-            # Formating Viewport Boundaries
-            self.em_3d_ax.set_title(f"3D EM Simulation & Thermal Via Array Preview (Substrate h = {self.stub_designer.h_mm}mm)")
-            self.em_3d_ax.set_xlabel("X-Axis Dimensions (mm)")
-            self.em_3d_ax.set_ylabel("Y-Axis Dimensions (mm)")
-            self.em_3d_ax.set_zlabel("Field Strength / Height (Z)")
+            # --- LIVE VIEWPORT S-PARAMETER OVERLAY CARDS ---
+            s21_db_val = -35.0
+            if self.loader.network is not None:
+                f_hz_query = f_tuned * 1e6
+                idx = np.argmin(np.abs(self.loader.network.f - f_hz_query))
+                s21_db_val = self.loader.network.s21.s_db[idx][0][0]
+
+            telemetry_text = (
+                f"  [ RF COMPILER LIVE TELEMETRY ]\n"
+                f"  • Operation Freq : {f_tuned:.1f} MHz\n"
+                f"  • Transmission S21: {s21_db_val:.2f} dB\n"
+                f"  • Isolation Level: {'EXCELLENT (<-25dB)' if s21_db_val < -25 else 'POOR CORNER BOUNDARY'}"
+            )
+            self.em_3d_ax.text2D(0.02, 0.95, telemetry_text, transform=self.em_3d_ax.transAxes,
+                                 color='white', weight='bold', fontname='monospace', fontsize=9,
+                                 bbox=dict(facecolor='#1e1e1e', alpha=0.85, edgecolor='#444444', boxstyle='round,pad=0.5'))
+
+            # Formatting Viewport Boundaries
+            self.em_3d_ax.set_title("Real-Time Transmission Line Field Diagnostics", fontsize=10, weight='bold')
+            self.em_3d_ax.set_xlim(-25, 25)
+            self.em_3d_ax.set_ylim(-30, 10)
             self.em_3d_ax.set_zlim(-2.5, 1.5)
             self.em_3d_ax.view_init(elev=22, azim=-55)
             self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
