@@ -18,6 +18,7 @@ from rf import (
     serialize_markdown_report,
     RFPerformanceVisualizer,
     StabilityAnalyzer,
+    ChokeBlockDesigner,
 )
 
 # Import the designer class core from your existing file
@@ -43,6 +44,7 @@ class DesignerApp:
         self.designer = MiniCircuitsLinearAmpDesigner(loader_instance=self.loader, z0=50.0)
         self.visualizer = RFPerformanceVisualizer(loader_instance=self.loader)
         self.stability = StabilityAnalyzer(loader_instance=self.loader, z0=50.0)
+        self.choke_block = ChokeBlockDesigner(loader_instance=self.loader, z0=50.0)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -246,8 +248,9 @@ class DesignerApp:
         sys.stdout = log_capture
 
         try:
-            self.designer.design_bias_choke()
-            self.designer.design_dc_block()
+            self.choke_block.design_bias_choke()
+            self.choke_block.design_dc_block()
+
             self.designer.design_feedback_loop()
             self.designer.design_active_dc_bias(
                 v_cc=self.vcc_var.get(), v_d=8.0, i_d=0.234
