@@ -628,6 +628,107 @@ class DesignerApp:
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = DesignerApp(root)
-    root.mainloop()
+    # If no shell arguments are passed, launch the GUI workspace immediately
+    if len(sys.argv) == 1:
+        root = tk.Tk()
+        app = DesignerApp(root)
+        root.mainloop()
+        sys.exit(0)
+
+    # Arguments exist -> Execute automated headless CLI pipeline instead
+    import argparse
+
+    from termcolor import colored
+
+    parser = argparse.ArgumentParser(
+        description="Unified Mini-Circuits Linear Amplifier Physical Hardware Designer"
+    )
+    parser.add_argument("s2p_file", type=str, help="Path to target Touchstone file standard")
+    parser.add_argument("-z", "--z0", type=float, default=50.0, help="System line target impedance")
+    parser.add_argument("-f", "--freq-eval", type=float, default=None, help="Evaluation frequency match node")
+    parser.add_argument("--fmin", type=float, default=None, help="Custom lower band limit")
+    parser.add_argument("--fmax", type=float, default=None, help="Custom upper band limit")
+    parser.add_argument("--vcc", type=float, default=12.0, help="Bias system voltage")
+    parser.add_argument("--t-amb", type=float, default=85.0, help="Environmental background ambient temperature")
+    parser.add_argument("--attn-pad", type=float, default=3.0, help="Inline target attenuator match")
+    parser.add_argument("--gcpw-mode", action="store_true", help="Toggle GCPW synthesis mode")
+    parser.add_argument("--export-path", type=str, default="design_report.md")
+    parser.add_argument("--pcb-path", type=str, default="amp_layout.kicad_pcb")
+    parser.add_argument("--sch-path", type=str, default="amp_schematic.kicad_sch")
+    parser.add_argument("--skip-plots", action="store_true")
+    parser.add_argument("--skip-smith", action="store_true")
+    parser.add_argument(
+        "--board-type",
+        type=str,
+        default="FR-4 Standard (1.6mm)",
+        choices=[
+            "FR-4 Standard (1.6mm)",
+            "Rogers RO3003 (10mil)",
+            "Rogers RO4003C (20mil)",
+            "Rogers RO4350B (30mil)",
+        ],
+        help="Select target PCB dielectric laminate substrate profile material",
+    )
+
+    args = parser.parse_args()
+    print(colored(f"[*] CLI Engine Running: Compiling analytical configurations for '{args.s2p_file}'", "cyan", attrs=["bold"]))
+
+    # Initialize Headless Core Classes
+    cli_loader = SParameterLoader()
+    cli_loader.load(args.s2p_file, f_min_override=args.fmin, f_max_override=args.fmax)
+
+    cli_choke = ChokeBlockDesigner(loader_instance=cli_loader, z0=args.z0)
+    cli_bias = BiasFeedbackDesigner(loader_instance=cli_loader, z0=args.z0)
+    cli_thermal = ThermalAdvisor(loader_instance=cli_loader)
+    cli_tlines = TransmissionLineSuite(loader_instance=cli_loader, z0=args.z0)
+    cli_stub = MicrostripStubBiasDesigner(loader_instance=cli_loader, z0=args.z0)
+
+    # Extract Substrate Map Metadata Profile
+    substrate_profiles = {
+        "FR-4 Standard (1.6mm)": {"er": 4.2, "h": 1.6, "h_mils": 62.0},
+        "Rogers RO3003 (10mil)": {"er": 3.00, "h": 0.254, "h_mils": 10.0},
+        "Rogers RO4003C (20mil)": {"er": 3.38, "h": 0.508, "h_mils": 20.0},
+        "Rogers RO4350B (30mil)": {"er": 3.48, "h": 0.762, "h_mils": 30.0},
+    }
+    prof = substrate_profiles.get(args.board_type, substrate_profiles["FR-4 Standard (1.6mm)"])
+    cli_stub.er, cli_stub.h_mm = prof["er"], prof["h"]
+
+    # Headless Pipeline Execution Sweep
+    if cli_loader.f_max_mhz >= 2000.0:
+        cli_stub.design_radial_stub_network(stub_angle_deg=60, num_stages=2)
+    else:
+        cli_choke.design_bias_choke(srf_safety_factor=args.srf_safety)
+        cli_choke.design_dc_block()
+
+    cli_bias.design_feedback_loop()
+    cli_bias.design_active_dc_bias(v_cc=args.vcc, v_d=8.0, i_d=0.234)
+    cli_thermal.analyze_thermal_profile(t_ambient_c=args.t_amb, v_d=8.0, i_d=0.234, theta_jc=29.3, board_type=args.board_type)
+
+    if args.gcpw_mode:
+        best_w, _ = cli_tlines.calculate_pcb_gcpw(board_type=args.board_type)
+    else:
+        best_w = cli_tlines.calculate_microstrip(board_type=args.board_type)
+
+    cli_tlines.design_lc_matching(target_freq_mhz=args.freq_eval)
+    cli_tlines.calculate_microstrip_electrical_length(h_mils=prof["h_mils"], er=prof["er"], target_deg=90.0, target_freq_mhz=args.freq_eval)
+    cli_tlines.design_fixed_attenuator_pad(target_attn_db=args.attn_pad)
+
+    er_eff_calc, _ = cli_tlines.calculate_microstrip_electrical_length(h_mils=prof["h_mils"], er=prof["er"], target_deg=90.0, target_freq_mhz=cli_loader.f_center_mhz)
+    dist_vec, z_vec = calculate_spatial_tdr(cli_loader.network, er_eff=er_eff_calc, z0=args.z0)
+
+    # Serialize Hardcopy Assets to Disk
+    serialize_markdown_report(
+        output_filename=args.export_path, f_min=cli_loader.f_min_mhz, f_max=cli_loader.f_max_mhz,
+        f_center=cli_loader.f_center_mhz, z0=args.z0, tdr_distance=dist_vec, tdr_impedance=z_vec,
+        stub_engine_instance=cli_stub if cli_loader.f_max_mhz >= 2000.0 else None
+    )
+    serialize_pcb_layout(output_filename=args.pcb_path, trace_width_mils=best_w, stub_engine_instance=cli_stub if cli_loader.f_max_mhz >= 2000.0 else None)
+    serialize_schematic(output_filename=args.sch_path)
+
+    # 5. Optional Plot Operations
+    if not args.skip_plots:
+        cli_visualizer = RFPerformanceVisualizer(loader_instance=cli_loader)
+        cli_visualizer.plot_linear_performance()
+    if not args.skip_smith:
+        cli_stability = StabilityAnalyzer(loader_instance=cli_loader, z0=args.z0)
+        cli_stability.plot_stability_circles(target_freq_mhz=args.freq_eval)
