@@ -64,6 +64,7 @@ class DesignerApp:
         self.layout_mode = tk.StringVar(value="Standard Microstrip")
         self.board_type_var = tk.StringVar(value="FR-4 Standard (1.6mm)")
         self.s2p_path_var = tk.StringVar(value="No File Loaded")
+        self.active_device_var = tk.StringVar(value="PHA-13HLN+")
 
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_secure_close)
@@ -94,7 +95,8 @@ class DesignerApp:
         mesh_data = self.stub_designer.generate_3d_mesh_data(
             phase_shift=self.current_phase,
             eval_freq_mhz=f_tuned,
-            mode=self.simulation_mode.get()
+            mode=self.simulation_mode.get(),
+            device_name=self.active_device_var.get()
         )
 
         # Clear previous frame vector paths while keeping camera angles locked
@@ -461,6 +463,11 @@ class DesignerApp:
 
         import io
 
+        from rf.hardware_profiles import DEVICE_PROFILES  # Dynamic profile import
+
+        target_device = self.active_device_var.get()
+        dev_spec = DEVICE_PROFILES.get(target_device, DEVICE_PROFILES["PHA-13HLN+"])
+
         log_capture = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = log_capture
@@ -546,9 +553,9 @@ class DesignerApp:
         plt.figure(self.therm_fig.number)
         self.thermals.analyze_thermal_profile(
             t_ambient_c=self.tamb_var.get(),
-            v_d=8.0,
-            i_d=0.234,
-            theta_jc=29.3,
+            v_d=dev_spec["v_d"],
+            i_d=dev_spec["i_d"],
+            theta_jc=dev_spec["theta_jc"],
             board_type=self.board_type_var.get(),
             embed_fig=self.therm_fig,
         )
@@ -580,13 +587,16 @@ class DesignerApp:
         try:
             # Determine if the active frequency profile demands a distributed planar stub
             stub_pass = self.stub_designer if self.loader.f_max_mhz >= 2000.0 else None
+            # Extract active profile name parameter safely
+            active_part = self.active_device_var.get()
 
             serialize_pcb_layout(
                 output_filename=lay_file,
                 trace_width_mils=best_w,
-                stub_engine_instance=stub_pass
+                stub_engine_instance=stub_pass,
+                device_name=active_part
             )
-            serialize_schematic(output_filename=sch_file)
+            serialize_schematic(output_filename=sch_file, device_name=active_part)
 
             # Re-compute active parameters to pass down spatial trace telemetry live maps
             er_eff, _ = self.t_lines.calculate_microstrip_electrical_length(

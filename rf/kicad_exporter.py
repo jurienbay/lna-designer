@@ -4,15 +4,16 @@ import math
 
 from termcolor import colored
 
+from .hardware_profiles import DEVICE_PROFILES, PACKAGE_FOOTPRINTS
 
-def serialize_pcb_layout(output_filename, trace_width_mils, stub_engine_instance=None):
+
+def serialize_pcb_layout(output_filename, trace_width_mils, stub_engine_instance=None, device_name="PHA-13HLN+"):
     """
     Generates a native KiCad PCB board file from scratch using the object-oriented
     data structures inside the pycbnew library.
     """
     try:
         from pycbnew.primitives.footprint import KFootprint, KFootprintProperty, KPad
-        from pycbnew.primitives.layer import Layer
         from pycbnew.primitives.net import KNet
         from pycbnew.primitives.project import KProject
         from pycbnew.primitives.zone import KZone
@@ -38,23 +39,31 @@ def serialize_pcb_layout(output_filename, trace_width_mils, stub_engine_instance
     proj.add(net3)
     proj.add(net4)
 
-    fp = KFootprint("Package_TO_SOT_SMD:SOT-89-3",
+    # Fetch active hardware configuration characteristics from registry mapping arrays
+    dev_cfg = DEVICE_PROFILES.get(device_name, DEVICE_PROFILES["PHA-13HLN+"])
+    pkg_cfg = PACKAGE_FOOTPRINTS.get(dev_cfg["package"], PACKAGE_FOOTPRINTS["SOT-89-3"])
+    # Instantiate the active footprint housing
+    fp = KFootprint(f"Package_TO_SOT_SMD:{dev_cfg['package']}",
                     at=Point(0.0, 0.0),
                     side=KFootprint.Side.Front,
                     default_net=None)
+    KFootprintProperty(fp, [], type="Description", value=f"{device_name} MMIC Package with Integrated Thermal Matrix")
 
-    KFootprintProperty(fp, data=[], type="Description", value="SOT-89 MMIC Package with Integrated Thermal Matrix")
+    # Dynamic Pad Generation Loop
+    # Parses ['at', X, Y] and ['size', W, H] settings cleanly straight from hardware profiles
+    for p_idx, p_data in enumerate(pkg_cfg["pads"], start=1):
+        pad_type_enum = KPad.Type.Smd if p_data[2] == "smd" else KPad.Type.Thru_hole
+        pad_shape_enum = KPad.Shape.Rect if p_data[3] == "rect" else KPad.Shape.Circle
 
-    KPad(fp, data = ["pad", "", KPad.Type.Smd, KPad.Shape.Rect, ['at', -1.5, 2.0], ['size', 0.65, 1.5] ])
-    KPad(fp, data = ["pad", "", KPad.Type.Smd, KPad.Shape.Rect, ['at', 0.0, 1.0], ['size', 1.8, 3.5] ])
-    KPad(fp, data = ["pad", "", KPad.Type.Smd, KPad.Shape.Rect, ['at', 1.5, 2.0], ['size', 0.65, 1.5] ])
+        KPad(fp, data = ["pad", str(p_idx), pad_type_enum, pad_shape_enum, p_data[4], p_data[5] ])
 
-    for x_pos in [-0.4, 0.4]:
-        for y_pos in [-0.3, 0.7, 1.7]:
-            KPad(fp,
-                data = ["pad", "", KPad.Type.Thru_hole, KPad.Shape.Circle, ['at', x_pos, y_pos],
-                ['size', 0.6, 0.6], ['drill', '0.3'], ['net', net1] ]
-            )
+    # Dynamic Thermal Via Matrix Stitched array pass-through
+    for x_pos, y_pos in pkg_cfg["vias"]:
+        KPad(fp,
+            data = ["pad", "", KPad.Type.Thru_hole, KPad.Shape.Circle, ['at', x_pos, y_pos],
+            ['size', pkg_cfg["via_size"], pkg_cfg["via_size"]],
+            ['drill', str(pkg_cfg["via_drill"])], ['net', net1] ]
+        )
 
     proj.add(fp)
 
@@ -115,7 +124,7 @@ def serialize_pcb_layout(output_filename, trace_width_mils, stub_engine_instance
     return f"[+] KiCad PCB generated: {output_filename}"
 
 
-def serialize_schematic(output_filename):
+def serialize_schematic(output_filename, device_name="PHA-13HLN+"):
     """
     Generates a native KiCad schematic file from scratch using pycbnew's schema objects.
     """
@@ -132,10 +141,14 @@ def serialize_schematic(output_filename):
     print(" 11. AUTOMATED KICAD SCHEMATIC GENERATOR (VIA PYCBNEW)")
     print("=" * 75)
 
+    # Recover active device specifications context
+    dev_cfg = DEVICE_PROFILES.get(device_name, DEVICE_PROFILES["PHA-13HLN+"])
+    sourcing = dev_cfg["sourcing"]
+
     # Initialize schematic via its primitive file context container structure
     sch = KSchematic(filename=output_filename)
     sch.set_paper("A4")
-    sch.set_title("PHA-13HLN+ Active Core Component Application Schematic")
+    sch.set_title(f"{device_name} Active Core Component Application Schematic")
     sch.set_company("Automated Python RF Designer Suite")
 
     def create_rf_symbol(lib_id, ref, val, pos, rot=0, fp=None, mpn=None, dk=None, ms=None):
@@ -158,8 +171,11 @@ def serialize_schematic(output_filename):
         mpn="GJM1555C1H101JB01D", dk="490-11721-1-ND", ms="81-GJM1555C1H101JB1D"
     )
     u1 = create_rf_symbol(
-        "Amplifier_RF:GALI-74+", "U1", "PHA-13HLN+", (76.2, 50.8),
-        fp="Package_TO_SOT_SMD:SOT-89-3", mpn="PHA-13HLN+", dk="PHA-13HLN+-ND", ms="Mini-Circuits PHA-13HLN+"
+        dev_cfg["schematic_symbol"], "U1", device_name, (76.2, 50.8),
+        fp=f"Package_TO_SOT_SMD:{dev_cfg['package']}",
+        mpn=sourcing["mpn"],
+        dk=sourcing["digikey"],
+        ms=sourcing["mouser"]
     )
     c2 = create_rf_symbol(
         "Device:C", "C2", "DC_BLOCK_OUT", (101.6, 50.8), rot=90,

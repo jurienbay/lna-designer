@@ -109,11 +109,14 @@ class MicrostripStubBiasDesigner:
                 spacing_len_mm = (lambda_spacing / 4) * 1000
                 print(f"    - Inter-Stage Line:      {spacing_len_mm:.2f} mm separation length ({z_high}Ω trace)")
 
-    def generate_3d_mesh_data(self, stub_angle_deg=60, phase_shift=0.0, eval_freq_mhz=None, mode='cw'):
+    def generate_3d_mesh_data(self, stub_angle_deg=60, phase_shift=0.0, eval_freq_mhz=None, mode='cw', device_name="PHA-13HLN+"):
         """
         Synthesizes raw 3D mesh arrays modeling the substrate bulk, etched copper planes,
         3D vertical thermal via cylinders, and active time-dependent RF electric field waves.
         """
+        import numpy as np
+        from .hardware_profiles import DEVICE_PROFILES, PACKAGE_FOOTPRINTS
+
         target_f_mhz = eval_freq_mhz if eval_freq_mhz is not None else self.loader.f_center_mhz
         f_hz = target_f_mhz * 1e6
 
@@ -136,9 +139,12 @@ class MicrostripStubBiasDesigner:
         stub_x_pts = [throat_x - w_high/2] + [throat_x + radius_r_mm * math.sin(t) for t in theta] + [throat_x + w_high/2]
         stub_y_pts = [throat_y] + [throat_y - radius_r_mm * math.cos(t) for t in theta] + [throat_y]
 
-        # Model 3D Thermal Via Cylinders
-        via_positions = [(-0.4, -0.3), (0.4, -0.3), (-0.4, 0.7), (0.4, 0.7), (-0.4, 1.7), (0.4, 1.7)]
-        via_radius = 0.15
+        # Model 3D Thermal Via Cylinders from Hardware Registry
+        dev_cfg = DEVICE_PROFILES.get(device_name, DEVICE_PROFILES["PHA-13HLN+"])
+        pkg_cfg = PACKAGE_FOOTPRINTS.get(dev_cfg["package"], PACKAGE_FOOTPRINTS["SOT-89-3"])
+
+        via_positions = pkg_cfg["vias"]
+        via_radius = pkg_cfg["via_drill"] / 2.0
         via_cylinders = []
 
         z_cylinder = np.linspace(-self.h_mm, 0, 10)

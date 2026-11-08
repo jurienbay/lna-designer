@@ -1,5 +1,6 @@
 from .bias_feedback_designer import BiasFeedbackDesigner
 from .choke_designer import ChokeBlockDesigner
+from .hardware_profiles import DEVICE_PROFILES, PACKAGE_FOOTPRINTS
 from .kicad_exporter import serialize_pcb_layout, serialize_schematic
 from .loader import SParameterLoader
 from .microstrip_stub_bias_designer import MicrostripStubBiasDesigner
