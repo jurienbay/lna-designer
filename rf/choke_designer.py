@@ -7,25 +7,71 @@ from termcolor import colored
 
 class ChokeBlockDesigner:
     def __init__(self, loader_instance, z0=50):
-        """
-        Initializes the bias choking and decoupling calculator component block.
-        """
+        """Initializes the bias choking and decoupling calculator component block."""
         self.loader = loader_instance
         self.z0 = z0
 
-    def design_bias_choke(self, srf_safety_factor=1.5):
-        package_constraints = {
-            "1210": {
-                "cp_pf": 2.2,
-                "desc": "Large wirewound power inductor / High current capacity",
-            },
-            "1206": {"cp_pf": 1.5, "desc": "Standard wirewound choke / Balanced power"},
-            "0805": {"cp_pf": 0.8, "desc": "Compact multilayer ferrite / Mod. current"},
-            "0603": {
-                "cp_pf": 0.3,
-                "desc": "Ultra-small ceramic chip / Low current, high-SRF",
-            },
+    @staticmethod
+    def generate_e_series(series_number=12):
+        """
+        Generates the standard EIA E-series multipliers dynamically using 10^(n/series).
+        Default is E12 (10%, 12 values per decade). Can also pass 24, 96, etc.
+        """
+        return [round(10 ** (i / series_number), 2) for i in range(series_number)]
+
+    @staticmethod
+    def get_e_series_values_in_range(v_min, v_max, series_number=12):
+        """
+        Dynamically populates all nominal components values across multiple decades
+        falling strictly between a structural minimum and maximum threshold.
+        """
+        base_values = ChokeBlockDesigner.generate_e_series(series_number)
+
+        # Determine decade boundaries based on min/max limits
+        dec_start = math.floor(math.log10(v_min)) if v_min > 0 else -12
+        dec_end = math.ceil(math.log10(v_max)) if v_max > 0 else 3
+
+        matches = []
+        for decade in range(dec_start, dec_end + 1):
+            multiplier = 10 ** decade
+            for val in base_values:
+                actual_val = val * multiplier
+                # Floating point rounding adjustment
+                actual_val = round(actual_val, 3 if decade < 0 else 1)
+                if v_min <= actual_val <= v_max:
+                    matches.append(actual_val)
+        return sorted(set(matches))
+
+    def get_dynamic_smd_parasitics(self, pkg_string):
+        """
+        Derives parasitic elements (ESL/CP) directly from standard metric/imperial sizes.
+        Uses a generalized scaling approximation based on volumetric chip dimensions.
+        """
+        # Dictionary format: 'Imperial_Name': (Length_mm, Width_mm)
+        dimensions = {
+            "1210": (3.2, 2.5),
+            "1206": (3.2, 1.6),
+            "0805": (2.0, 1.25),
+            "0603": (1.6, 0.8),
+            "0402": (1.0, 0.5),
+            "0201": (0.6, 0.3)
         }
+
+        if pkg_string not in dimensions:
+            raise ValueError(f"Unknown package footprint configuration: {pkg_string}")
+
+        l, w = dimensions[pkg_string]
+        # Parasitic Inductance (ESL) approximates to ~1 nH per mm of package length
+        esl_nh = l * 0.35 + 0.2
+        # Parasitic Parallel Capacitance scales roughly with terminal landpad area surface interaction
+        cp_pf = (l * w) * 0.2 + 0.1
+
+        return {"esl_nh": round(esl_nh, 2), "cp_pf": round(cp_pf, 2)}
+
+    def design_bias_choke(self, srf_safety_factor=1.5, evaluation_packages=None):
+        if evaluation_packages is None:
+            evaluation_packages = ["1210", "1206", "0805", "0603"]
+
         f_min, f_max = self.loader.f_min_mhz * 1e6, self.loader.f_max_mhz * 1e6
         target_xl_min = 10 * self.z0
         target_srf_min = srf_safety_factor * f_max
@@ -39,41 +85,35 @@ class ChokeBlockDesigner:
         print("-" * 75)
 
         selected_package, best_l_max = None, 0
-        for pkg, specs in package_constraints.items():
-            cp = specs["cp_pf"] * 1e-12
+        for pkg in evaluation_packages:
+            parasitics = self.get_dynamic_smd_parasitics(pkg)
+            cp = parasitics["cp_pf"] * 1e-12
             l_max = 1 / (4 * (math.pi**2) * (target_srf_min**2) * cp)
 
             if l_min <= l_max:
-                status = f"👍 VALID ({specs['desc']})"
+                status = "👍 VALID"
                 if selected_package is None:
                     selected_package, best_l_max = pkg, l_max
             else:
                 status = "😞 INVALID (SRF violation)"
-            print(
-                f"{pkg:<10} | {specs['cp_pf']:>4.1f} pF | Max L Allowed: {l_max * 1e6:>7.2f} uH | {status}"
-            )
+
+            print(f"SMD {pkg:<5} | Calc Cp: {parasitics['cp_pf']:>4.2f} pF | Max L Allowed: {l_max * 1e6:>7.2f} uH | {status}")
 
         if selected_package:
             print(colored(f"\n[+] Recommended Footprint: {selected_package}", "green", attrs=["bold"]))
-            standard_values = [1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2, 10.0, 12.0, 15.0]
-            suggestions = [v for v in standard_values if (l_min * 1e6) <= v <= (best_l_max * 1e6)]
+            suggestions = ChokeBlockDesigner.get_e_series_values_in_range(l_min * 1e6, best_l_max * 1e6, series_number=12)
             print(f"    Sourcing window: {l_min * 1e6:.2f} uH to {best_l_max * 1e6:.2f} uH")
             if suggestions:
-                print(f"    Standard E12 Values: {', '.join([f'{v} uH' for v in suggestions])}")
+                print(f"    Dynamic E12 Values: {', '.join([f'{v} uH' for v in suggestions])}")
         else:
             print(colored("\n[!] Design Warning: Single-stage choke cannot clear SRF. Consider a conical choke.", "red"))
 
-    def design_dc_block(self):
-        cap_package_constraints = {
-            "1210": {"esl_nh": 1.2},
-            "1206": {"esl_nh": 1.0},
-            "0805": {"esl_nh": 0.8},
-            "0603": {"esl_nh": 0.6},
-            "0402": {"esl_nh": 0.4},
-        }
+    def design_dc_block(self, evaluation_packages=None):
+        if evaluation_packages is None:
+            evaluation_packages = ["1210", "1206", "0805", "0603", "0402"]
+
         f_min, f_center = self.loader.f_min_mhz * 1e6, self.loader.f_center_mhz * 1e6
         c_min = 1 / (2 * math.pi * f_min * (self.z0 / 10))
-        standard_pf = [10, 22, 47, 100, 220, 470, 1000, 2200, 4700, 10000]
 
         print("\n" + "=" * 75)
         print(" 2. DC-BLOCK / COUPLING CAPACITOR SELECTION")
@@ -81,10 +121,23 @@ class ChokeBlockDesigner:
         print(f"[*] Target Freq: {self.loader.f_center_mhz:.1f} MHz | Min Cap Req: {c_min * 1e12:.1f} pF")
         print("-" * 75)
 
-        for pkg, specs in cap_package_constraints.items():
-            esl = specs["esl_nh"] * 1e-9
+        for pkg in evaluation_packages:
+            parasitics = self.get_dynamic_smd_parasitics(pkg)
+            esl = parasitics["esl_nh"] * 1e-9
             c_ideal = 1 / (4 * (math.pi**2) * (f_center**2) * esl)
-            closest_val = min(standard_pf, key=lambda x: abs(x - (c_ideal * 1e12)))
 
-            status = f"👍 Optimal: {closest_val} pF" if (closest_val * 1e-12) >= c_min else "😞 Too small for passband"
-            print(f"SMD {pkg:<6} | ESL: {specs['esl_nh']:.1f} nH | Center SRF Target C: {c_ideal * 1e12:>7.1f} pF | {status}")
+            # Dynamically look for any valid target E12 capacitor nearby
+            search_min = max(c_min * 1e12, c_ideal * 1e12 * 0.5)
+            search_max = c_ideal * 1e12 * 1.5
+            available_caps = ChokeBlockDesigner.get_e_series_values_in_range(search_min, search_max, series_number=12)
+
+            if available_caps:
+                closest_val = min(available_caps, key=lambda x: abs(x - (c_ideal * 1e12)))
+                status = f"👍 Optimal Dynamic Value: {closest_val} pF"
+            else:
+                # If no matching standard values in optimal range, fallback to check absolute min boundary
+                absolute_check = ChokeBlockDesigner.get_e_series_values_in_range(c_min * 1e12, c_min * 1e12 * 10, series_number=12)
+                closest_val = absolute_check[0] if absolute_check else "N/A"
+                status = f"😞 Ideal SRF out of range. Closest safe structural passband Cap: {closest_val} pF"
+
+            print(f"SMD {pkg:<5} | Calc ESL: {parasitics['esl_nh']:.2f} nH | Center SRF Target C: {c_ideal * 1e12:>7.1f} pF | {status}")
