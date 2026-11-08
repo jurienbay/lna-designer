@@ -201,6 +201,30 @@ class DesignerApp:
         self.tdr_canvas = FigureCanvasTkAgg(self.tdr_fig, master=self.notebook)
         self.notebook.add(self.tdr_canvas.get_tk_widget(), text=" Spatial TDR Mismatch Graph ")
 
+        # Fixed Application Footer Metadata Panel ---
+        footer_frame = ttk.Frame(main_frame, padding=(5, 2))
+        footer_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        main_frame.rowconfigure(1, weight=0) # Lock vertical expansion to the workbook panels
+
+        # Attribution Notice
+        author_lbl = ttk.Label(
+            footer_frame,
+            text="Copyright © 2026, Edward O'Callaghan. All rights reserved.",
+            font=("Arial", 9, "italic"),
+            foreground="#888888"
+        )
+        author_lbl.pack(side=tk.LEFT, padx=5)
+
+        # Live Substrate Environment Telemetry Status Tag
+        self.status_msg_var = tk.StringVar(value="System Active | No File Ingested")
+        status_lbl = ttk.Label(
+            footer_frame,
+            textvariable=self.status_msg_var,
+            font=("Arial", 9, "bold"),
+            foreground="#2b2b2b" if sys.platform == "win32" else "#a9b7c6"
+        )
+        status_lbl.pack(side=tk.RIGHT, padx=5)
+
     def on_secure_close(self):
         """
         Forces Matplotlib memory handles to clear completely, preventing the
@@ -220,6 +244,7 @@ class DesignerApp:
             self.s2p_path_var.set(os.path.basename(fpath))
             self.fmin_var.set(round(self.loader.f_min_mhz, 1))
             self.fmax_var.set(round(self.loader.f_max_mhz, 1))
+            self.status_msg_var.set(f"Loaded: {os.path.basename(fpath)} | Substrate Model Configured")
             self.recompute_all()
 
     def recompute_all(self):
