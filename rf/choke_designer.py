@@ -70,7 +70,7 @@ class ChokeBlockDesigner:
 
     def design_bias_choke(self, srf_safety_factor=1.5, evaluation_packages=None):
         if evaluation_packages is None:
-            evaluation_packages = ["1210", "1206", "0805", "0603"]
+            evaluation_packages = ["1210", "1206", "0805", "0603", "0402", "0201"]
 
         f_min, f_max = self.loader.f_min_mhz * 1e6, self.loader.f_max_mhz * 1e6
         target_xl_min = 10 * self.z0
@@ -106,7 +106,28 @@ class ChokeBlockDesigner:
             if suggestions:
                 print(f"    Dynamic E12 Values: {', '.join([f'{v} uH' for v in suggestions])}")
         else:
-            print(colored("\n[!] Design Warning: Single-stage choke cannot clear SRF. Consider a conical choke.", "red"))
+            print(colored("\n[!] Wideband Contradiction: Single-stage choke cannot clear SRF.", "yellow"))
+            print(colored("[*] Executing Automated Multi-Stage Bias Network Synthesis...", "cyan"))
+
+            # Synthesize Stage 1: Target the smallest package available to handle upper frequency boundaries
+            stage1_pkg = "0402"
+            p1 = self.get_dynamic_smd_parasitics(stage1_pkg)
+            l1_max = 1 / (4 * (math.pi**2) * (target_srf_min**2) * (p1["cp_pf"] * 1e-12))
+
+            # Select the optimal standard component value right at the threshold ceiling boundary
+            stage1_suggestions = ChokeBlockDesigner.get_e_series_values_in_range(l1_max * 1e6 * 0.5, l1_max * 1e6, series_number=12)
+            l1_val_uh = stage1_suggestions[-1] if stage1_suggestions else (l1_max * 1e6 * 0.9)
+
+            # Synthesize Stage 2: Deduct Stage 1 value and compute bulk low-freq complement bounds
+            l2_req_uh = (l_min * 1e6) - l1_val_uh
+
+            # Stage 2's SRF line only needs to clear where Stage 1's reactance takes over (lower frequency region)
+            stage2_pkg = "1206"
+
+            print(colored(f"\n[+] Synthesized 2-Stage Cascaded Bias Choke Network:", "green", attrs=["bold"]))
+            print(f"    - Stage 1 (High-Freq Isolation): {l1_val_uh:.2f} uH [SMD {stage1_pkg}] (Clears Upper SRF Floor)")
+            print(f"    - Stage 2 (Low-Freq Bulk):       {l2_req_uh:.2f} uH [SMD {stage2_pkg}] (Provides Base Reactance)")
+            print(f"    - Placement Topology Hint: Locate the tiny {stage1_pkg} package immediately next to the RF signal trace path node.")
 
     def design_dc_block(self, evaluation_packages=None):
         if evaluation_packages is None:
