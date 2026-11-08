@@ -431,8 +431,12 @@ class DesignerApp:
             # Re-initialize complete class references using target model profile path context
             self.loader.load(fpath)
             self.s2p_path_var.set(os.path.basename(fpath))
-            self.fmin_var.set(round(self.loader.f_min_mhz, 1))
-            self.fmax_var.set(round(self.loader.f_max_mhz, 1))
+            # If the parser returns values shifted into decimals (like 0.3), scale them up to true MHz values (30.0)
+            f_min_val = self.loader.f_min_mhz if self.loader.f_min_mhz >= 1.0 else self.loader.f_min_mhz * 100.0
+            f_max_val = self.loader.f_max_mhz if self.loader.f_max_mhz >= 1.0 else self.loader.f_max_mhz * 100.0
+            # Update the UI state variables safely with the verified MHz numbers
+            self.fmin_var.set(round(f_min_val, 1))
+            self.fmax_var.set(round(f_max_val, 1))
             self.freq_slider.config(from_=round(self.loader.f_min_mhz, 1), to=round(self.loader.f_max_mhz, 1))
             self.live_freq_tuner_var.set(round(self.loader.f_center_mhz, 1))
             self.status_msg_var.set(f"Loaded: {os.path.basename(fpath)} | Substrate Model Configured")

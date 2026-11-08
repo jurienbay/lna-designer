@@ -141,6 +141,7 @@ class ChokeBlockDesigner:
             evaluation_packages = ["1210", "1206", "0805", "0603", "0402"]
 
         # Apply identical scale check protection bounds
+        ##print(self.loader.f_min_mhz)
         f_min_raw = self.loader.f_min_mhz
         f_center_raw = self.loader.f_center_mhz
         f_min = f_min_raw if f_min_raw > 1e5 else f_min_raw * 1e6
