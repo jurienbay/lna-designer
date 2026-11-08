@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 from termcolor import colored
 
 
@@ -107,3 +108,61 @@ class MicrostripStubBiasDesigner:
                 lambda_spacing = self.c0 / (f_max * math.sqrt(er_eff_high))
                 spacing_len_mm = (lambda_spacing / 4) * 1000
                 print(f"    - Inter-Stage Line:      {spacing_len_mm:.2f} mm separation length ({z_high}Ω trace)")
+
+    def generate_3d_mesh_data(self, stub_angle_deg=60, phase_shift=0.0):
+        """
+        Synthesizes raw 3D mesh arrays modeling the substrate bulk, etched copper planes,
+        3D vertical thermal via cylinders, and active time-dependent RF electric field waves.
+        """
+        f_center = self.loader.f_center_mhz * 1e6
+        _, er_eff_stub = self.calculate_microstrip_w_and_eff(self.z0)
+        z_high = 100.0
+        w_high, _ = self.calculate_microstrip_w_and_eff(z_high)
+
+        lambda_g = self.c0 / (f_center * math.sqrt(er_eff_stub))
+        radius_r_mm = (lambda_g / 4) * 1000
+
+        # Generate Base Substrate Block
+        sub_x, sub_y = np.meshgrid(np.linspace(-25, 25, 30), np.linspace(-30, 10, 30))
+        sub_z_top = np.zeros_like(sub_x)
+        sub_z_bot = np.zeros_like(sub_x) - self.h_mm
+
+        # Synthesize Radial Stub Copper Polygon Points
+        theta = np.linspace(-math.radians(stub_angle_deg)/2, math.radians(stub_angle_deg)/2, 20)
+        throat_x, throat_y = 0.0, -5.0
+
+        stub_x_pts = [throat_x - w_high/2] + [throat_x + radius_r_mm * math.sin(t) for t in theta] + [throat_x + w_high/2]
+        stub_y_pts = [throat_y] + [throat_y - radius_r_mm * math.cos(t) for t in theta] + [throat_y]
+
+        # Model 3D Thermal Via Cylinders
+        via_positions = [(-0.4, -0.3), (0.4, -0.3), (-0.4, 0.7), (0.4, 0.7), (-0.4, 1.7), (0.4, 1.7)]
+        via_radius = 0.15
+        via_cylinders = []
+
+        z_cylinder = np.linspace(-self.h_mm, 0, 10)
+        phi_cylinder = np.linspace(0, 2 * np.pi, 12)
+        P, Z = np.meshgrid(phi_cylinder, z_cylinder)
+
+        for vx, vy in via_positions:
+            vx_mesh = vx + via_radius * np.cos(P)
+            vy_mesh = vy + via_radius * np.sin(P)
+            via_cylinders.append((vx_mesh, vy_mesh, Z))
+
+        # Generate Time-Dependent Signal Wave Propagation Trace
+        wave_y = np.linspace(-5.0, 2.0, 40)
+        wave_x = np.zeros_like(wave_y)
+        beta = (2 * math.pi) / (lambda_g * 1000)
+
+        # Electric field component (Vertical displacement Z)
+        wave_z_amplitude = 0.4 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
+
+        # Quasi-TEM Perpendicular Magnetic Field component (Horizontal deflection X)
+        # Shifted in phase / space to track Maxwell's curl equations naturally
+        wave_h_x = 3.5 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
+
+        return {
+            "substrate": (sub_x, sub_y, sub_z_top, sub_z_bot),
+            "stub_poly": (np.array(stub_x_pts), np.array(stub_y_pts), np.zeros_like(stub_x_pts) + 0.02),
+            "vias": via_cylinders,
+            "wave_trace": (wave_x, wave_y, wave_z_amplitude, wave_h_x)
+        }

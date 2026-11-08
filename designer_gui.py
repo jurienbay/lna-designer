@@ -2,12 +2,14 @@
 
 ## Copyright (C) <2026>, <Edward O'Callaghan>, All rights reserved.
 
+import math
 import os
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from rf import (
@@ -42,6 +44,11 @@ class DesignerApp:
         self.t_lines = TransmissionLineSuite(loader_instance=self.loader, z0=50.0)
         self.stub_designer = MicrostripStubBiasDesigner(loader_instance=self.loader, z0=50.0)
 
+        # Interactive animation loop flags
+        self.animating = False
+        self.current_phase = 0.0
+        self.anim_loop_id = None
+
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
         self.tamb_var = tk.DoubleVar(value=25.0)
@@ -54,6 +61,79 @@ class DesignerApp:
 
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_secure_close)
+
+    def toggle_wave_animation(self):
+        """Toggles the execution state of the time-domain wave solver."""
+        if not self.loader.network:
+            messagebox.showwarning("Data Profile Missing", "Please load an .s2p Touchstone dataset file first.")
+            return
+
+        self.animating = not self.animating
+        if self.animating:
+            self.play_btn.config(text="⏸ Pause Wave Propagation")
+            self.run_animation_frame_tick()
+        else:
+            self.play_btn.config(text="▶ Play Wave Propagation")
+            if self.anim_loop_id:
+                self.root.after_cancel(self.anim_loop_id)
+
+    def run_animation_frame_tick(self):
+        """Executes a single redraw slice and schedules the subsequent frame tick."""
+        if not self.animating:
+            return
+
+        # Advance the wave's phase slice (omega * t)
+        self.current_phase += 0.15
+        if self.current_phase >= 2 * math.pi:
+            self.current_phase = 0.0
+
+        # Fetch fresh time-dependent wave arrays
+        mesh_data = self.stub_designer.generate_3d_mesh_data(phase_shift=self.current_phase)
+
+        # Clear previous frame vector paths while keeping camera angles locked
+        curr_elev = self.em_3d_ax.elev
+        curr_azim = self.em_3d_ax.azim
+        self.em_3d_ax.clear()
+
+        # Redraw all elements for the new frame
+        sub_x, sub_y, z_top, z_bot = mesh_data["substrate"]
+        self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.1, edgecolor='none')
+        self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.2, edgecolor='none')
+
+        cu_x, cu_y, cu_z = mesh_data["stub_poly"]
+        self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.8, edgecolor='brown', linewidth=0.5)
+
+        for v_x, v_y, v_z in mesh_data["vias"]:
+            self.em_3d_ax.plot_surface(v_x, v_y, v_z, color='crimson', alpha=0.7, edgecolor='none')
+
+        wx, wy, wz, hx = mesh_data["wave_trace"]
+        self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=3.5, label='E-Field Vector Wave ($E_z$)')
+        for i in range(0, len(wy), 3):
+            self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=1.2)
+
+        # Overlay Orthogonal Pink/Magenta Magnetic Field Vector Arrows (H)
+        # Using 3D quiver to draw horizontal arrows wrapping right-angles around the track path
+        sample_stride = 2 # Prevent arrow crowding on layout screen
+        self.em_3d_ax.quiver(
+            wx[::sample_stride], wy[::sample_stride], np.zeros_like(wz)[::sample_stride], # Arrow origins
+            hx[::sample_stride], np.zeros_like(hx)[::sample_stride], np.zeros_like(hx)[::sample_stride], # Vector directions (X-axis offset)
+            color='deeppink', length=0.8, normalize=True, label='Magnetic Field ($H_x$)'
+        )
+
+        # Restore configuration properties and views
+        self.em_3d_ax.set_title(f"Live 3D EM Wave Propagation Solver (Phase: {self.current_phase:.2f} rad)")
+        self.em_3d_ax.set_xlabel("X-Axis (mm)")
+        self.em_3d_ax.set_ylabel("Y-Axis (mm)")
+        self.em_3d_ax.set_zlabel("Field Strength / Height (Z)")
+        self.em_3d_ax.set_zlim(-2.5, 1.5)
+        self.em_3d_ax.view_init(elev=curr_elev, azim=curr_azim)
+        self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
+
+        # Flush the buffer updates to the UI canvas
+        self.em_3d_canvas.draw_idle()
+
+        # Schedule next frame update (~50ms delay for roughly 20 FPS)
+        self.anim_loop_id = self.root.after(50, self.run_animation_frame_tick)
 
     def build_ui(self):
         # Master Grid Layout Configurations
@@ -221,6 +301,24 @@ class DesignerApp:
         self.tdr_canvas = FigureCanvasTkAgg(self.tdr_fig, master=self.notebook)
         self.notebook.add(self.tdr_canvas.get_tk_widget(), text=" Spatial TDR Mismatch Graph ")
 
+        # Tab 6: 3D Electromagnetic Structural Mesh Previewer Panel
+        self.em_3d_fig = plt.figure(figsize=(8, 6))
+        self.em_3d_ax = self.em_3d_fig.add_subplot(111, projection='3d') # 3D projection viewport coordinates
+
+        # Master layout container for tab 6
+        tab6_frame = ttk.Frame(self.notebook, padding="5")
+        self.em_3d_canvas = FigureCanvasTkAgg(self.em_3d_fig, master=tab6_frame)
+        self.em_3d_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Play/Pause interactive media dock
+        media_btn_frame = ttk.Frame(tab6_frame)
+        media_btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+
+        self.play_btn = ttk.Button(media_btn_frame, text="▶ Play Wave Propagation", command=self.toggle_wave_animation)
+        self.play_btn.pack(side=tk.TOP, pady=5)
+
+        self.notebook.add(tab6_frame, text=" 3D Structural EM Viewer ")
+
         # Fixed Application Footer Metadata Panel ---
         footer_frame = ttk.Frame(main_frame, padding=(5, 2))
         footer_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -250,6 +348,9 @@ class DesignerApp:
         Forces Matplotlib memory handles to clear completely, preventing the
         background thread hang when shutting down the desktop application.
         """
+        self.animating = False
+        if self.anim_loop_id:
+            self.root.after_cancel(self.anim_loop_id)
         plt.close("all")  # Purge all underlying figures from system memory
         self.root.quit()  # Terminate the Tkinter master thread block
         self.root.destroy()  # Securely destroy the desktop graphic workspace window
@@ -363,6 +464,52 @@ class DesignerApp:
             self.tdr_ax.legend(loc='upper right')
             self.tdr_fig.tight_layout()
             self.tdr_canvas.draw()
+
+            # --- RENDER ADVANCED 3D EM STRUCTURAL VIEWPORT ---
+            mesh_data = self.stub_designer.generate_3d_mesh_data()
+            self.em_3d_ax.clear()
+
+            # Layer 1: Draw Substrate Box and Ground planes
+            sub_x, sub_y, z_top, z_bot = mesh_data["substrate"]
+            self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.1, edgecolor='none')
+            self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.2, edgecolor='none')
+
+            # Layer 2: Draw Etched Copper Radial Stub Wedge
+            cu_x, cu_y, cu_z = mesh_data["stub_poly"]
+            self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.8, edgecolor='brown', linewidth=0.5)
+
+            # Layer 3: Render 3D Stitched Thermal Vias through back-plane
+            for v_x, v_y, v_z in mesh_data["vias"]:
+                # Color copper walls bright crimson to make barrel geometry boundaries highly clear
+                self.em_3d_ax.plot_surface(v_x, v_y, v_z, color='crimson', alpha=0.7, edgecolor='none')
+
+            # Layer 4: Render active Voltage/E-Field Wave Propagation paths
+            wx, wy, wz, hx = mesh_data["wave_trace"]
+            # Primary Traveling wave entry track path line
+            self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=3.5, label='E-Field Vector Wave ($E_z$)')
+            # Add decorative standing wave directional drop indicators
+            for i in range(0, len(wy), 3):
+                self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=1.2)
+
+            # Overlay Orthogonal Pink/Magenta Magnetic Field Vector Arrows (H)
+            # Using 3D quiver to draw horizontal arrows wrapping right-angles around the track path
+            sample_stride = 2 # Prevent arrow crowding on layout screen
+            self.em_3d_ax.quiver(
+                wx[::sample_stride], wy[::sample_stride], np.zeros_like(wz)[::sample_stride], # Arrow origins
+                hx[::sample_stride], np.zeros_like(hx)[::sample_stride], np.zeros_like(hx)[::sample_stride], # Vector directions (X-axis offset)
+                color='deeppink', length=0.8, normalize=True, label='Magnetic Field ($H_x$)'
+            )
+
+            # Formating Viewport Boundaries
+            self.em_3d_ax.set_title(f"3D EM Simulation & Thermal Via Array Preview (Substrate h = {self.stub_designer.h_mm}mm)")
+            self.em_3d_ax.set_xlabel("X-Axis Dimensions (mm)")
+            self.em_3d_ax.set_ylabel("Y-Axis Dimensions (mm)")
+            self.em_3d_ax.set_zlabel("Field Strength / Height (Z)")
+            self.em_3d_ax.set_zlim(-2.5, 1.5)
+            self.em_3d_ax.view_init(elev=22, azim=-55)
+            self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
+            self.em_3d_fig.tight_layout()
+            self.em_3d_canvas.draw()
 
         finally:
             sys.stdout = old_stdout
