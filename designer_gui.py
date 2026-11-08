@@ -304,11 +304,11 @@ class DesignerApp:
             )
 
             if self.layout_mode.get() == "Standard Microstrip":
-                _best_w = self.t_lines.calculate_pcb_microstrip(
+                best_w = self.t_lines.calculate_pcb_microstrip(
                     board_type=self.board_type_var.get()
                 )
             else:
-                _best_w, _ = self.t_lines.calculate_pcb_gcpw(
+                best_w, _ = self.t_lines.calculate_pcb_gcpw(
                     board_type=self.board_type_var.get()
                 )
 
@@ -376,11 +376,11 @@ class DesignerApp:
 
         # Handle local track dimensions queries relative to dropdown states
         if self.layout_mode.get() == "Standard Microstrip":
-            _best_w = self.t_lines.calculate_pcb_microstrip(
+            best_w = self.t_lines.calculate_pcb_microstrip(
                 board_type=self.board_type_var.get()
             )
         else:
-            _best_w, _ = self.t_lines.calculate_pcb_gcpw(
+            best_w, _ = self.t_lines.calculate_pcb_gcpw(
                 board_type=self.board_type_var.get()
             )
 
@@ -390,7 +390,7 @@ class DesignerApp:
         rpt_file = "gui_report.md"
 
         try:
-            serialize_pcb_layout(output_filename=lay_file, trace_width_mils=_best_w)
+            serialize_pcb_layout(output_filename=lay_file, trace_width_mils=best_w)
             serialize_schematic(output_filename=sch_file)
 
             # Re-compute active parameters to pass down spatial trace telemetry live maps
