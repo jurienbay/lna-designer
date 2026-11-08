@@ -23,14 +23,6 @@ from rf import (
 )
 
 
-class MiniCircuitsLinearAmpDesigner:
-    def __init__(self, loader_instance, z0=50):
-        """
-        Initializes the designer by loading the Mini-Circuits Touchstone .s2p data.
-        """
-        self.z0 = z0
-        self.loader = loader_instance
-
 if __name__ == "__main__":
     import argparse
 
@@ -141,8 +133,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-
-    # Instantiate your designer class using the arguments
     print(
         colored(
             f"[*] Starting Line Designer Suite for: {args.s2p_file}",
@@ -154,7 +144,6 @@ if __name__ == "__main__":
     loader = SParameterLoader()
     loader.load(args.s2p_file, f_min_override=args.fmin, f_max_override=args.fmax)
 
-    designer = MiniCircuitsLinearAmpDesigner(loader_instance=loader, z0=args.z0)
     visualizer = RFPerformanceVisualizer(loader_instance=loader)
     stability = StabilityAnalyzer(loader_instance=loader, z0=args.z0)
     choke_block = ChokeBlockDesigner(loader_instance=loader, z0=args.z0)
@@ -192,15 +181,15 @@ if __name__ == "__main__":
     t_lines.design_fixed_attenuator_pad(target_attn_db=args.attn_pad)
 
     # Calculate the er_eff properties headlessly to pass down to template tracker
-    er_eff_calc, _ = t_lines.calculate_microstrip_electrical_length(target_freq_mhz=designer.loader.f_center_mhz)
-    dist_vec, z_vec = calculate_spatial_tdr(designer.loader.network, er_eff=er_eff_calc, z0=designer.z0)
+    er_eff_calc, _ = t_lines.calculate_microstrip_electrical_length(target_freq_mhz=loader.f_center_mhz)
+    dist_vec, z_vec = calculate_spatial_tdr(loader.network, er_eff=er_eff_calc, z0=args.z0)
 
     serialize_markdown_report(
         output_filename=args.export_path,
-        f_min=designer.loader.f_min_mhz,
-        f_max=designer.loader.f_max_mhz,
-        f_center=designer.loader.f_center_mhz,
-        z0=designer.z0,
+        f_min=loader.f_min_mhz,
+        f_max=loader.f_max_mhz,
+        f_center=loader.f_center_mhz,
+        z0=args.z0,
         tdr_distance=dist_vec,
         tdr_impedance=z_vec
     )
@@ -215,8 +204,8 @@ if __name__ == "__main__":
         zo_calc = (87.0 / math.sqrt(4.2 + 1.41)) * math.log(
             (5.98 * h) / (0.8 * w_check + t)
         )
-        if abs(zo_calc - designer.z0) < min_err:
-            min_err = abs(zo_calc - designer.z0)
+        if abs(zo_calc - args.z0) < min_err:
+            min_err = abs(zo_calc - args.z0)
             best_w = w_check
 
     serialize_pcb_layout(output_filename=args.pcb_path, trace_width_mils=best_w)

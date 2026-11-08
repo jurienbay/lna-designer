@@ -24,18 +24,6 @@ from rf import (
     TransmissionLineSuite,
 )
 
-# Import the designer class core from your existing file
-# (Assumes your file is named 'designer.py')
-try:
-    from designer import MiniCircuitsLinearAmpDesigner
-except ImportError:
-    print(
-        "[!] Project Architecture Error: Could not locate 'designer.py' in this directory."
-    )
-    print("    Ensure your core analysis script file is named exactly 'designer.py'.")
-    sys.exit(1)
-
-
 class DesignerApp:
     def __init__(self, root):
         self.root = root
@@ -44,7 +32,7 @@ class DesignerApp:
 
         # Instantiate the analysis engine with no initial file path
         self.loader = SParameterLoader()
-        self.designer = MiniCircuitsLinearAmpDesigner(loader_instance=self.loader, z0=50.0)
+        self.z0 = 50.0
         self.visualizer = RFPerformanceVisualizer(loader_instance=self.loader)
         self.stability = StabilityAnalyzer(loader_instance=self.loader, z0=50.0)
         self.choke_block = ChokeBlockDesigner(loader_instance=self.loader, z0=50.0)
@@ -278,7 +266,7 @@ class DesignerApp:
             self.recompute_all()
 
     def recompute_all(self):
-        if not self.designer.loader.network:
+        if not self.loader.network:
             messagebox.showwarning(
                 "Data Profile Missing",
                 "Please load a Mini-Circuits Touchstone .s2p file descriptor first.",
@@ -337,12 +325,12 @@ class DesignerApp:
             )
 
             # Execute structural spatial TDR sweeps via the rf_engine pipeline package
-            dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.designer.z0)
+            dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.z0)
 
             # Clear and redraw the TDR axis canvas container explicitly
             self.tdr_ax.clear()
             self.tdr_ax.plot(dist_axis, z_profile, color='deeppink', linewidth=2, label='Line Profile ($Z_{inst}$)')
-            self.tdr_ax.axhline(self.designer.z0, color='grey', linestyle='--', alpha=0.7, label='Target $Z_0$ Baseline (50Ω)')
+            self.tdr_ax.axhline(self.z0, color='grey', linestyle='--', alpha=0.7, label='Target $Z_0$ Baseline (50Ω)')
 
             self.tdr_ax.set_title("PCB Spatial Mismatch Profile (Time-Domain Reflectometry Simulation)")
             self.tdr_ax.set_xlabel("Physical Distance Along the Input Transmission Trace Path (mm)")
@@ -409,14 +397,14 @@ class DesignerApp:
             er_eff, _ = self.t_lines.calculate_microstrip_electrical_length(
                 h_mils=62.0, er=4.2, target_deg=90.0, target_freq_mhz=self.loader.f_center_mhz
             )
-            dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.designer.z0)
+            dist_axis, z_profile = calculate_spatial_tdr(self.loader.network, er_eff=er_eff, z0=self.z0)
 
             serialize_markdown_report(
                 output_filename=rpt_file,
                 f_min=self.loader.f_min_mhz,
                 f_max=self.loader.f_max_mhz,
                 f_center=self.loader.f_center_mhz,
-                z0=self.designer.z0,
+                z0=self.z0,
                 tdr_distance=dist_axis,
                 tdr_impedance=z_profile
             )
