@@ -14,6 +14,7 @@ from rf import (
     serialize_pcb_layout,
     serialize_schematic,
     serialize_markdown_report,
+    RFPerformanceVisualizer,
 )
 
 
@@ -24,77 +25,6 @@ class MiniCircuitsLinearAmpDesigner:
         """
         self.z0 = z0
         self.loader = loader_instance
-
-    def plot_linear_performance(self, embed_fig=None):
-        """Plots standard S-parameters, stability factor K, and Max Gain."""
-        freq_ghz = self.loader.network.f / 1e9
-        s11_db = self.loader.network.s11.s_db.flatten()
-        s21_db = self.loader.network.s21.s_db.flatten()
-        s22_db = self.loader.network.s22.s_db.flatten()
-        k_factor = self.loader.network.stability.flatten()
-        g_max_db = self.loader.network.max_gain.flatten()
-
-        # Check if we are passing a container from a GUI window canvas layout interface frame
-        if embed_fig:
-            fig = embed_fig
-            axs = fig.get_axes()
-            # If the embedded figure doesn't have 4 subplots mapped yet, construct them
-            if len(axs) < 4:
-                fig.clear()
-                axs = fig.subplots(2, 2)
-            else:
-                for ax in axs:
-                    ax.clear()
-            # Reshape subplots back into a predictable 2x2 multi-dimensional lookup layout matrix
-            axs = np.array(axs).reshape(2, 2)
-        else:
-            fig, axs = plt.subplots(2, 2, figsize=(12, 9))
-
-        axs[0, 0].plot(freq_ghz, s21_db, label="Gain ($S_{21}$)", color="blue")
-        axs[0, 0].plot(
-            freq_ghz,
-            self.loader.network.s12.s_db.flatten(),
-            label="Isolation ($S_{12}$)",
-            color="orange",
-            linestyle="--",
-        )
-        axs[0, 0].set_title(f"{self.loader.network.name}: Gain & Isolation")
-        axs[0, 0].set_ylabel("dB")
-        axs[0, 0].grid(True)
-        axs[0, 0].legend()
-
-        axs[0, 1].plot(freq_ghz, s11_db, label="Input RL ($S_{11}$)", color="red")
-        axs[0, 1].plot(freq_ghz, s22_db, label="Output RL ($S_{22}$)", color="green")
-        axs[0, 1].set_title("Return Losses")
-        axs[0, 1].set_ylabel("dB")
-        axs[0, 1].grid(True)
-        axs[0, 1].legend()
-
-        axs[1, 0].plot(freq_ghz, k_factor, color="purple")
-        axs[1, 0].axhline(1.0, color="red", linestyle=":", label="K=1 Stable Bound")
-        axs[1, 0].set_title("Stability Factor (K)")
-        axs[1, 0].set_xlabel("Frequency (GHz)")
-        axs[1, 0].grid(True)
-        axs[1, 0].legend()
-
-        axs[1, 1].plot(
-            freq_ghz, g_max_db, label="Max Feasible Gain ($G_{max}$)", color="black"
-        )
-        axs[1, 1].plot(
-            freq_ghz, s21_db, label="Raw Gain ($S_{21}$)", color="blue", alpha=0.4
-        )
-        axs[1, 1].set_title("Maximum Feasible Gain")
-        axs[1, 1].set_xlabel("Frequency (GHz)")
-        axs[1, 1].grid(True)
-        axs[1, 1].legend()
-
-        for ax in axs.flatten():
-            # Convert our selected MHz variables to GHz to match the graph's horizontal units
-            ax.set_xlim(self.loader.f_min_mhz / 1000.0, self.loader.f_max_mhz / 1000.0)
-
-        fig.tight_layout()
-        if not embed_fig:
-            plt.show()
 
     def plot_stability_circles(self, target_freq_mhz=None, embed_fig=None):
         """
@@ -1047,6 +977,7 @@ if __name__ == "__main__":
     loader.load(args.s2p_file, f_min_override=args.fmin, f_max_override=args.fmax)
 
     designer = MiniCircuitsLinearAmpDesigner(loader_instance=loader, z0=args.z0)
+    visualizer = RFPerformanceVisualizer(loader_instance=loader)
 
     # Execute the analytical hardware design methods
     designer.design_bias_choke(srf_safety_factor=args.srf_safety)
@@ -1111,7 +1042,7 @@ if __name__ == "__main__":
 
     # Handle plotting visibility based on user flags
     if not args.skip_plots:
-        designer.plot_linear_performance()
+        visualizer.plot_linear_performance()
 
     if not args.skip_smith:
         designer.plot_stability_circles(target_freq_mhz=args.freq_eval)

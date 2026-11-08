@@ -16,6 +16,7 @@ from rf import (
     serialize_pcb_layout,
     serialize_schematic,
     serialize_markdown_report,
+    RFPerformanceVisualizer,
 )
 
 # Import the designer class core from your existing file
@@ -39,9 +40,7 @@ class DesignerApp:
         # Instantiate the analysis engine with no initial file path
         self.loader = SParameterLoader()
         self.designer = MiniCircuitsLinearAmpDesigner(loader_instance=self.loader, z0=50.0)
-        #self.designer = MiniCircuitsLinearAmpDesigner.__new__(
-        #    MiniCircuitsLinearAmpDesigner
-        #)
+        self.visualizer = RFPerformanceVisualizer(loader_instance=self.loader)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -296,7 +295,7 @@ class DesignerApp:
         self.log_text.delete("1.0", tk.END)
         self.log_text.insert(tk.END, log_capture.getvalue())
 
-        self.designer.plot_linear_performance(embed_fig=self.plot_fig)
+        self.visualizer.plot_linear_performance(embed_fig=self.plot_fig)
         self.plot_canvas.draw()
 
         self.designer.plot_stability_circles(
