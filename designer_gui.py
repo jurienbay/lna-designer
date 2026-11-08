@@ -82,20 +82,8 @@ class DesignerApp:
             if self.anim_loop_id:
                 self.root.after_cancel(self.anim_loop_id)
 
-    def run_animation_frame_tick(self):
-        """Executes a single redraw slice and schedules the subsequent frame tick."""
-        if not self.animating:
-            return
-
-        # Handle phase increments / reset envelope step boundaries for the TDR window loop
-        if self.simulation_mode.get() == "cw":
-            self.current_phase += 0.15
-            if self.current_phase >= 2 * math.pi:
-                self.current_phase = 0.0
-        else:
-            self.current_phase += 0.08
-            if self.current_phase >= 7.5:  # Let pulse scale pass out of frame viewport cleanly before wrap
-                self.current_phase = 0.0
+    def render_3d_viewport(self):
+        """Unified rendering logic for the 3D EM core lamination stackup view."""
 
         # Sync live slider string label text indicator lookups
         f_tuned = self.live_freq_tuner_var.get()
@@ -153,9 +141,27 @@ class DesignerApp:
         self.em_3d_ax.set_ylim(-30, 10)
         self.em_3d_ax.set_zlim(-2.5, 1.5)
         self.em_3d_ax.view_init(elev=curr_elev, azim=curr_azim)
-
-        # Flush the buffer updates to the UI canvas
+        self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
+        self.em_3d_fig.tight_layout()
         self.em_3d_canvas.draw_idle()
+
+    def run_animation_frame_tick(self):
+        """Executes a single redraw slice and schedules the subsequent frame tick."""
+        if not self.animating:
+            return
+
+        # Handle phase increments / reset envelope step boundaries for the TDR window loop
+        if self.simulation_mode.get() == "cw":
+            self.current_phase += 0.15
+            if self.current_phase >= 2 * math.pi:
+                self.current_phase = 0.0
+        else:
+            self.current_phase += 0.08
+            if self.current_phase >= 7.5:  # Let pulse scale pass out of frame viewport cleanly before wrap
+                self.current_phase = 0.0
+
+        # Execute unified render pass
+        self.render_3d_viewport()
         # Schedule next frame update (~45ms delay for roughly 20 FPS)
         self.anim_loop_id = self.root.after(45, self.run_animation_frame_tick)
 
@@ -510,70 +516,7 @@ class DesignerApp:
             self.tdr_canvas.draw()
 
             # --- RENDER ADVANCED 3D EM STRUCTURAL VIEWPORT ---
-            f_tuned = self.live_freq_tuner_var.get()
-
-            # Fetch the fully expanded diagnostic dataset matrix
-            mesh_data = self.stub_designer.generate_3d_mesh_data(
-                phase_shift=self.current_phase,
-                eval_freq_mhz=f_tuned,
-                mode=self.simulation_mode.get()
-            )
-            self.em_3d_ax.clear()
-
-            # Layer 1: Draw Substrate Box and Ground planes
-            sub_x, sub_y, z_top, z_bot = mesh_data["substrate"]
-            self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.08, edgecolor='none')
-            self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.15, edgecolor='none')
-
-            # Layer 2: Draw Etched Copper Radial Stub Wedge
-            cu_x, cu_y, cu_z = mesh_data["stub_poly"]
-            self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.75, edgecolor='brown', linewidth=0.5)
-
-            # Layer 3: Render 3D Stitched Thermal Vias through back-plane
-            for v_x, v_y, v_z in mesh_data["vias"]:
-                # Color copper walls bright crimson to make barrel geometry boundaries highly clear
-                self.em_3d_ax.plot_surface(v_x, v_y, v_z, color='crimson', alpha=0.7, edgecolor='none')
-
-            # Layer 4: Render active Voltage/E-Field Wave Propagation paths
-            wx, wy, wz, hx = mesh_data["wave_trace"]
-            self.em_3d_ax.plot(wx, wy, wz, color='cyan', linewidth=2.5, label='E-Field Vector Wave ($E_z$)')
-            for i in range(0, len(wy), 3):
-                self.em_3d_ax.plot([wx[i], wx[i]], [wy[i], wy[i]], [0, wz[i]], color='cyan', linestyle=':', linewidth=0.8)
-
-            # Overlay Orthogonal Perpendicular Magnetic Field Vector Arrows (H)
-            sample_stride = 2
-            self.em_3d_ax.quiver(
-                wx[::sample_stride], wy[::sample_stride], np.zeros_like(wz)[::sample_stride],
-                hx[::sample_stride], np.zeros_like(hx)[::sample_stride], np.zeros_like(hx)[::sample_stride],
-                color='deeppink', length=0.8, normalize=True, label='Magnetic Field ($H_x$)'
-            )
-
-            # --- LIVE VIEWPORT S-PARAMETER OVERLAY CARDS ---
-            s21_db_val = -35.0
-            if self.loader.network is not None:
-                f_hz_query = f_tuned * 1e6
-                idx = np.argmin(np.abs(self.loader.network.f - f_hz_query))
-                s21_db_val = self.loader.network.s21.s_db[idx][0][0]
-
-            telemetry_text = (
-                f"  [ RF COMPILER LIVE TELEMETRY ]\n"
-                f"  • Operation Freq : {f_tuned:.1f} MHz\n"
-                f"  • Transmission S21: {s21_db_val:.2f} dB\n"
-                f"  • Isolation Level: {'EXCELLENT (<-25dB)' if s21_db_val < -25 else 'POOR CORNER BOUNDARY'}"
-            )
-            self.em_3d_ax.text2D(-0.20, 0.90, telemetry_text, transform=self.em_3d_ax.transAxes,
-                                 color='white', weight='bold', fontname='monospace', fontsize=9,
-                                 bbox=dict(facecolor='#1e1e1e', alpha=0.85, edgecolor='#444444', boxstyle='round,pad=0.5'))
-
-            # Formatting Viewport Boundaries
-            self.em_3d_ax.set_title("Real-Time Transmission Line Field Diagnostics", fontsize=10, weight='bold')
-            self.em_3d_ax.set_xlim(-25, 25)
-            self.em_3d_ax.set_ylim(-30, 10)
-            self.em_3d_ax.set_zlim(-2.5, 1.5)
-            self.em_3d_ax.view_init(elev=22, azim=-55)
-            self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
-            self.em_3d_fig.tight_layout()
-            self.em_3d_canvas.draw()
+            self.render_3d_viewport()
 
         finally:
             sys.stdout = old_stdout
