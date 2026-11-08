@@ -98,22 +98,50 @@ class DesignerApp:
             ("Attenuator Pad (dB)", self.attn_var, 1.0, 20.0),
         ]
 
-        # Programmatically instantiate tuning control sliders
+        # Programmatically instantiate tuning control sliders with matching text entry fields
         for name, var, v_min, v_max in sliders:
             ttk.Label(ctrl_frame, text=name, font=("Arial", 10, "bold")).grid(
                 row=row, column=0, sticky="w", pady=(5, 0)
             )
-            val_lbl = ttk.Label(ctrl_frame, text=f"{var.get():.1f}")
-            val_lbl.grid(row=row, column=1, sticky="e", pady=(5, 0))
+
+            val_entry = tk.Entry(
+                ctrl_frame,
+                width=7,
+                font=("Courier", 9),
+                bg=self.root.cget("bg"),
+                relief=tk.FLAT,
+                highlightthickness=1
+            )
+            val_entry.grid(row=row, column=1, sticky="e", pady=(5, 0))
+            val_entry.insert(0, f"{var.get():.1f}")
 
             scale = ttk.Scale(
                 ctrl_frame,
                 from_=v_min,
                 to=v_max,
                 variable=var,
-                command=lambda e, vl=val_lbl, vr=var: vl.config(text=f"{vr.get():.1f}"),
             )
             scale.grid(row=row + 1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+
+            # Bi-directional reactive synchronization handlers
+            def update_entry_from_slider(val, entry=val_entry):
+                if not self.root.focus_get() == entry:  # Only modify text if user isn't actively typing
+                    entry.delete(0, tk.END)
+                    entry.insert(0, f"{float(val):.1f}")
+
+            def update_slider_from_entry(event, s_var=var, entry=val_entry, v_min=v_min, v_max=v_max, s_obj=scale):
+                try:
+                    val = float(entry.get())
+                    clamped_val = max(v_min, min(val, v_max)) # Enforce hardware constraint bounds
+                    s_var.set(clamped_val)
+                except ValueError:
+                    pass # Silently drop malformed non-numeric characters while the user is mid-keystroke
+
+            # Bind events to lock sync loops together
+            scale.config(command=update_entry_from_slider)
+            val_entry.bind("<KeyRelease>", update_slider_from_entry)
+            val_entry.bind("<FocusOut>", lambda e, entry=val_entry, s_var=var: [entry.delete(0, tk.END), entry.insert(0, f"{s_var.get():.1f}")])
+
             row += 2
 
         # Transmission Line Type Dropdown
