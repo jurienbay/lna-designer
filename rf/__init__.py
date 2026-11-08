@@ -6,3 +6,4 @@ from .visualizer import RFPerformanceVisualizer
 from .stability import StabilityAnalyzer
 from .choke_designer import ChokeBlockDesigner
 from .bias_feedback_designer import BiasFeedbackDesigner
+from .thermal_advisor import ThermalAdvisor

@@ -20,6 +20,7 @@ from rf import (
     StabilityAnalyzer,
     ChokeBlockDesigner,
     BiasFeedbackDesigner,
+    ThermalAdvisor,
 )
 
 # Import the designer class core from your existing file
@@ -47,6 +48,7 @@ class DesignerApp:
         self.stability = StabilityAnalyzer(loader_instance=self.loader, z0=50.0)
         self.choke_block = ChokeBlockDesigner(loader_instance=self.loader, z0=50.0)
         self.bias_feedback = BiasFeedbackDesigner(loader_instance=self.loader, z0=50.0)
+        self.thermals = ThermalAdvisor(loader_instance=self.loader)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -311,7 +313,7 @@ class DesignerApp:
         self.smith_canvas.draw()
 
         plt.figure(self.therm_fig.number)
-        self.designer.analyze_thermal_profile(
+        self.thermals.analyze_thermal_profile(
             t_ambient_c=self.tamb_var.get(),
             v_d=8.0,
             i_d=0.234,
