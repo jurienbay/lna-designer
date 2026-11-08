@@ -72,7 +72,14 @@ class ChokeBlockDesigner:
         if evaluation_packages is None:
             evaluation_packages = ["1210", "1206", "0805", "0603", "0402", "0201"]
 
-        f_min, f_max = self.loader.f_min_mhz * 1e6, self.loader.f_max_mhz * 1e6
+        # Check if the loader variables are already scaled to raw Hz or sitting at a fractional decade
+        f_min_raw = self.loader.f_min_mhz
+        f_max_raw = self.loader.f_max_mhz
+        # If the values are small (e.g. < 2000), they are in MHz, so scale by 1e6.
+        # If they are already raw large integers (e.g. > 1e5), leave them as pure Hz.
+        f_min = f_min_raw if f_min_raw > 1e5 else f_min_raw * 1e6
+        f_max = f_max_raw if f_max_raw > 1e5 else f_max_raw * 1e6
+
         target_xl_min = 10 * self.z0
         target_srf_min = srf_safety_factor * f_max
         l_min = target_xl_min / (2 * math.pi * f_min)
@@ -133,7 +140,12 @@ class ChokeBlockDesigner:
         if evaluation_packages is None:
             evaluation_packages = ["1210", "1206", "0805", "0603", "0402"]
 
-        f_min, f_center = self.loader.f_min_mhz * 1e6, self.loader.f_center_mhz * 1e6
+        # Apply identical scale check protection bounds
+        f_min_raw = self.loader.f_min_mhz
+        f_center_raw = self.loader.f_center_mhz
+        f_min = f_min_raw if f_min_raw > 1e5 else f_min_raw * 1e6
+        f_center = f_center_raw if f_center_raw > 1e5 else f_center_raw * 1e6
+
         c_min = 1 / (2 * math.pi * f_min * (self.z0 / 10))
 
         print("\n" + "=" * 75)
