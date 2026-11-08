@@ -1,6 +1,7 @@
 ## Copyright (C) <2026>, <Edward O'Callaghan>, All rights reserved.
 
 import math
+
 from termcolor import colored
 
 
@@ -10,10 +11,10 @@ def serialize_pcb_layout(output_filename, trace_width_mils, stub_engine_instance
     data structures inside the pycbnew library.
     """
     try:
-        from pycbnew.primitives.project import KProject
-        from pycbnew.primitives.layer import Layer
         from pycbnew.primitives.footprint import KFootprint, KFootprintProperty, KPad
+        from pycbnew.primitives.layer import Layer
         from pycbnew.primitives.net import KNet
+        from pycbnew.primitives.project import KProject
         from pycbnew.primitives.zone import KZone
         from pycbnew.utils.geometry import Point
     except ImportError:
@@ -119,7 +120,7 @@ def serialize_schematic(output_filename):
     Generates a native KiCad schematic file from scratch using pycbnew's schema objects.
     """
     try:
-        from pycbnew.primitives.schematic import KSchematic, KSymbol, KWire, KProperty
+        from pycbnew.primitives.schematic import KProperty, KSchematic, KSymbol, KWire
         from pycbnew.utils.geometry import Point
     except ImportError:
         raise ImportError(
