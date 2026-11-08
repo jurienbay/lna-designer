@@ -13,6 +13,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from rf import (
+    SUBSTRATE_PROFILES,
     BiasFeedbackDesigner,
     ChokeBlockDesigner,
     MicrostripStubBiasDesigner,
@@ -266,12 +267,7 @@ class DesignerApp:
         cb_board = ttk.Combobox(
             ctrl_frame,
             textvariable=self.board_type_var,
-            values=[
-                "FR-4 Standard (1.6mm)",
-                "Rogers RO3003 (10mil)",
-                "Rogers RO4003C (20mil)",
-                "Rogers RO4350B (30mil)",
-            ],
+            values=list(SUBSTRATE_PROFILES.keys()),
             state="readonly",
         )
         cb_board.grid(row=row + 1, column=0, columnspan=2, sticky="ew", pady=5)
@@ -469,16 +465,9 @@ class DesignerApp:
         old_stdout = sys.stdout
         sys.stdout = log_capture
 
-        ## XXX hacked in.
         # Sync runtime updates across your distributed microstrip calculator parameters
         board_name = self.board_type_var.get()
-        substrate_profiles = {
-            "FR-4 Standard (1.6mm)": {"er": 4.2, "h": 1.6},
-            "Rogers RO3003 (10mil)": {"er": 3.00, "h": 0.254},
-            "Rogers RO4003C (20mil)": {"er": 3.38, "h": 0.508},
-            "Rogers RO4350B (30mil)": {"er": 3.48, "h": 0.762},
-        }
-        profile = substrate_profiles.get(board_name, {"er": 4.2, "h": 1.6})
+        profile = SUBSTRATE_PROFILES.get(board_name, {"er": 4.2, "h": 1.6})
         self.stub_designer.er = profile["er"]
         self.stub_designer.h_mm = profile["h"]
 
@@ -661,12 +650,7 @@ if __name__ == "__main__":
         "--board-type",
         type=str,
         default="FR-4 Standard (1.6mm)",
-        choices=[
-            "FR-4 Standard (1.6mm)",
-            "Rogers RO3003 (10mil)",
-            "Rogers RO4003C (20mil)",
-            "Rogers RO4350B (30mil)",
-        ],
+        choices=list(SUBSTRATE_PROFILES.keys()),
         help="Select target PCB dielectric laminate substrate profile material",
     )
 
@@ -684,13 +668,7 @@ if __name__ == "__main__":
     cli_stub = MicrostripStubBiasDesigner(loader_instance=cli_loader, z0=args.z0)
 
     # Extract Substrate Map Metadata Profile
-    substrate_profiles = {
-        "FR-4 Standard (1.6mm)": {"er": 4.2, "h": 1.6, "h_mils": 62.0},
-        "Rogers RO3003 (10mil)": {"er": 3.00, "h": 0.254, "h_mils": 10.0},
-        "Rogers RO4003C (20mil)": {"er": 3.38, "h": 0.508, "h_mils": 20.0},
-        "Rogers RO4350B (30mil)": {"er": 3.48, "h": 0.762, "h_mils": 30.0},
-    }
-    prof = substrate_profiles.get(args.board_type, substrate_profiles["FR-4 Standard (1.6mm)"])
+    prof = SUBSTRATE_PROFILES.get(args.board_type, substrate_profiles["FR-4 Standard (1.6mm)"])
     cli_stub.er, cli_stub.h_mm = prof["er"], prof["h"]
 
     # Headless Pipeline Execution Sweep

@@ -1,21 +1,15 @@
 ## Copyright (C) <2026>, <Edward O'Callaghan>, All rights reserved.
 
 import math
-from typing import ClassVar
 
 import matplotlib.pyplot as plt
 import numpy as np
 from termcolor import colored
 
+from .substrate_config import SUBSTRATE_PROFILES
+
 
 class ThermalAdvisor:
-    SUBSTRATE_PROFILES : ClassVar[dict[str, dict[str, float]]] = {
-        "FR-4 Standard (1.6mm)": {"er": 4.2, "h_mils": 62.0},
-        "Rogers RO3003 (10mil)": {"er": 3.00, "h_mils": 10.0},
-        "Rogers RO4003C (20mil)": {"er": 3.38, "h_mils": 20.0},
-        "Rogers RO4350B (30mil)": {"er": 3.48, "h_mils": 30.0},
-    }
-
     def __init__(self, loader_instance):
         """
         Initializes the thermal advisor engine linked to the shared SParameterLoader.
@@ -35,7 +29,7 @@ class ThermalAdvisor:
         safety_margin = t_j_max_allowed - t_j
 
         # --- DYNAMIC MATERIAL THERMODYNAMICS MATRIX ENGINE ---
-        profile = self.SUBSTRATE_PROFILES.get(board_type, self.SUBSTRATE_PROFILES["FR-4 Standard (1.6mm)"])
+        profile = SUBSTRATE_PROFILES.get(board_type, SUBSTRATE_PROFILES["FR-4 Standard (1.6mm)"])
         h_mils = profile["h_mils"]
 
         h_conv_base = 0.000015  # W/mm^2*K

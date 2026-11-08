@@ -6,6 +6,7 @@ from .microstrip_stub_bias_designer import MicrostripStubBiasDesigner
 from .mismatch_analyzer import calculate_spatial_tdr
 from .report_exporter import serialize_markdown_report
 from .stability import StabilityAnalyzer
+from .substrate_config import SUBSTRATE_PROFILES
 from .thermal_advisor import ThermalAdvisor
 from .transmission_line_suite import TransmissionLineSuite
 from .visualizer import RFPerformanceVisualizer
