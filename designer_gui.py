@@ -19,6 +19,7 @@ from rf import (
     RFPerformanceVisualizer,
     StabilityAnalyzer,
     ChokeBlockDesigner,
+    BiasFeedbackDesigner,
 )
 
 # Import the designer class core from your existing file
@@ -45,6 +46,7 @@ class DesignerApp:
         self.visualizer = RFPerformanceVisualizer(loader_instance=self.loader)
         self.stability = StabilityAnalyzer(loader_instance=self.loader, z0=50.0)
         self.choke_block = ChokeBlockDesigner(loader_instance=self.loader, z0=50.0)
+        self.bias_feedback = BiasFeedbackDesigner(loader_instance=self.loader, z0=50.0)
 
         # Core GUI Reactive Application Variables
         self.vcc_var = tk.DoubleVar(value=12.0)
@@ -251,8 +253,8 @@ class DesignerApp:
             self.choke_block.design_bias_choke()
             self.choke_block.design_dc_block()
 
-            self.designer.design_feedback_loop()
-            self.designer.design_active_dc_bias(
+            self.bias_feedback.design_feedback_loop()
+            self.bias_feedback.design_active_dc_bias(
                 v_cc=self.vcc_var.get(), v_d=8.0, i_d=0.234
             )
 

@@ -5,3 +5,4 @@ from .report_exporter import serialize_markdown_report
 from .visualizer import RFPerformanceVisualizer
 from .stability import StabilityAnalyzer
 from .choke_designer import ChokeBlockDesigner
+from .bias_feedback_designer import BiasFeedbackDesigner
