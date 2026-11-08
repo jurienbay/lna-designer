@@ -14,6 +14,7 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
         from pycbnew.primitives.footprint import KFootprint
         from pycbnew.primitives.footprint import KFootprintProperty
         from pycbnew.primitives.footprint import KPad
+        from pycbnew.primitives.net import KNet
         from pycbnew.primitives.zone import KZone
         from pycbnew.utils.geometry import Point
     except ImportError:
@@ -27,6 +28,13 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
     print("=" * 75)
 
     proj = KProject(filename=output_filename, copper_layers=2)
+
+    net1 = KNet(1, "one")
+    net2 = KNet(2, "two")
+    net3 = KNet(3, "three")
+    proj.add(net1)
+    proj.add(net2)
+    proj.add(net3)
 
     fp = KFootprint("Package_TO_SOT_SMD:SOT-89-3",
                     at=Point(0.0, 0.0),
@@ -43,26 +51,29 @@ def serialize_pcb_layout(output_filename, trace_width_mils):
         for y_pos in [-0.3, 0.7, 1.7]:
             KPad(fp,
                 data = ["pad", "", KPad.Type.Thru_hole, KPad.Shape.Circle, ['at', x_pos, y_pos],
-                ['size', 0.6, 0.6], ['drill', '0.3'], ['net', 0]]
+                ['size', 0.6, 0.6], ['drill', '0.3'], ['net', net1] ]
             )
 
     proj.add(fp)
 
-    in_zone = KZone(net=1, layer="F.Cu")
+    in_zone = KZone(net=net2, layer="F.Cu")
     in_zone.add_points([
-        (-40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
-        (-1.5, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
-        (-1.5, 2.0 + (trace_width_mils * 0.0254 / 2.0)),
-        (-40.0, 2.0 + (trace_width_mils * 0.0254 / 2.0))
+        Point(-40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
+        Point(-1.5, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
+        Point(-1.5, 2.0 + (trace_width_mils * 0.0254 / 2.0)),
+        Point(-40.0, 2.0 + (trace_width_mils * 0.0254 / 2.0))
     ])
 
-    out_zone = KZone(net=2, layer="F.Cu")
+    out_zone = KZone(net=net3, layer="F.Cu")
     out_zone.add_points([
-        (1.5, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
-        (40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
-        (40.0, 2.0 + (trace_width_mils * 0.0254 / 2.0)),
-        (1.5, 2.0 + (trace_width_mils * 0.0254 / 2.0))
+        Point(1.5, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
+        Point(40.0, 2.0 - (trace_width_mils * 0.0254 / 2.0)),
+        Point(40.0, 2.0 + (trace_width_mils * 0.0254 / 2.0)),
+        Point(1.5, 2.0 + (trace_width_mils * 0.0254 / 2.0))
     ])
+
+    proj.add(in_zone)
+    proj.add(out_zone)
 
     proj.save()
     proj.export_svg()
