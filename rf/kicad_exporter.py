@@ -119,7 +119,8 @@ def serialize_schematic(output_filename):
     Generates a native KiCad schematic file from scratch using pycbnew's schema objects.
     """
     try:
-        import pycbnew.schematic as ksch
+        from pycbnew.primitives.schematic import KSchematic, KSymbol, KWire, KProperty
+        from pycbnew.utils.geometry import Point
     except ImportError:
         raise ImportError(
             "[!] Critical Dependency Error: 'kicad-pycbnew' schematic interfaces are missing.\n"
@@ -130,56 +131,63 @@ def serialize_schematic(output_filename):
     print(" 11. AUTOMATED KICAD SCHEMATIC GENERATOR (VIA PYCBNEW)")
     print("=" * 75)
 
-    sch = ksch.Schematic()
+    # Initialize schematic via its primitive file context container structure
+    sch = KSchematic(filename=output_filename)
     sch.set_paper("A4")
     sch.set_title("PHA-13HLN+ Active Core Component Application Schematic")
     sch.set_company("Automated Python RF Designer Suite")
 
     def create_rf_symbol(lib_id, ref, val, pos, rot=0, fp=None, mpn=None, dk=None, ms=None):
-        sym = ksch.Symbol(lib_id=lib_id, position=pos, rotation=rot)
-        sym.add_property(ksch.Property("Reference", ref, visible=True))
-        sym.add_property(ksch.Property("Value", val, visible=True))
+        sym = KSymbol(lib_id=lib_id, at=Point(pos[0], pos[1]), rotation=rot)
+        # Structural internal field properties are appended to the entity instance mapping
+        sym.add(KProperty("Reference", ref, visible=True))
+        sym.add(KProperty("Value", val, visible=True))
         if fp:
-            sym.add_property(ksch.Property("Footprint", fp, visible=False))
+            sym.add(KProperty("Footprint", fp, visible=False))
         if mpn:
-            sym.add_property(ksch.Property("MPN", mpn, visible=False))
+            sym.add(KProperty("MPN", mpn, visible=False))
         if dk:
-            sym.add_property(ksch.Property("DigiKey", dk, visible=False))
+            sym.add(KProperty("DigiKey", dk, visible=False))
         if ms:
-            sym.add_property(ksch.Property("Mouser", ms, visible=False))
+            sym.add(KProperty("Mouser", ms, visible=False))
         return sym
 
-    sch.add_symbol(create_rf_symbol(
+    c1 = create_rf_symbol(
         "Device:C", "C1", "DC_BLOCK_IN", (50.8, 50.8), rot=90,
         mpn="GJM1555C1H101JB01D", dk="490-11721-1-ND", ms="81-GJM1555C1H101JB1D"
-    ))
-
-    sch.add_symbol(create_rf_symbol(
+    )
+    u1 = create_rf_symbol(
         "Amplifier_RF:GALI-74+", "U1", "PHA-13HLN+", (76.2, 50.8),
         fp="Package_TO_SOT_SMD:SOT-89-3", mpn="PHA-13HLN+", dk="PHA-13HLN+-ND", ms="Mini-Circuits PHA-13HLN+"
-    ))
-
-    sch.add_symbol(create_rf_symbol(
+    )
+    c2 = create_rf_symbol(
         "Device:C", "C2", "DC_BLOCK_OUT", (101.6, 50.8), rot=90,
         mpn="GJM1555C1H101JB01D", dk="490-11721-1-ND", ms="81-GJM1555C1H101JB1D"
-    ))
-
-    sch.add_symbol(create_rf_symbol(
+    )
+    l1 = create_rf_symbol(
         "Device:L", "L1", "RF_CHOKE", (88.9, 31.75),
         mpn="0603HP-R10XJLU", dk="0603HP-R10XJLU-ND", ms="613-0603HP-R10XJLU"
-    ))
-
-    sch.add_symbol(create_rf_symbol(
+    )
+    r1 = create_rf_symbol(
         "Device:R", "R1", "R_BIAS", (88.9, 19.05),
         mpn="WK73R3ATTE18R0F", dk="638-WK73R3ATTE18R0FCT-ND", ms="660-WK73R3ATTE18R0F"
-    ))
+    )
 
-    sch.add_wire(ksch.Wire(start=(53.34, 50.8), end=(71.12, 50.8)))
-    sch.add_wire(ksch.Wire(start=(81.28, 50.8), end=(88.9, 50.8)))
-    sch.add_wire(ksch.Wire(start=(88.9, 50.8), end=(99.06, 50.8)))
-    sch.add_wire(ksch.Wire(start=(88.9, 50.8), end=(88.9, 34.29)))
-    sch.add_wire(ksch.Wire(start=(88.9, 29.21), end=(88.9, 21.59)))
+    sch.add(c1)
+    sch.add(u1)
+    sch.add(c2)
+    sch.add(l1)
+    sch.add(r1)
 
-    sch.serialize(output_filename)
+    # Draw interconnections using primitive KWire endpoints
+    sch.add(KWire(start=Point(53.34, 50.8), end=Point(71.12, 50.8)))
+    sch.add(KWire(start=Point(81.28, 50.8), end=Point(88.9, 50.8)))
+    sch.add(KWire(start=Point(88.9, 50.8), end=Point(99.06, 50.8)))
+    sch.add(KWire(start=Point(88.9, 50.8), end=Point(88.9, 34.29)))
+    sch.add(KWire(start=Point(88.9, 29.21), end=Point(88.9, 21.59)))
+
+    sch.save()
+
+
     print(colored(f"[+] KiCad Schematic Generation via pycbnew Complete! Saved to '{output_filename}'", "green", attrs=["bold"]))
     return f"[+] KiCad Schematic generated: {output_filename}"
