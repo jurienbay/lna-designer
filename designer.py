@@ -146,6 +146,40 @@ class DesignerApp:
         self.em_3d_ax.set_zlim(-2.5, 1.5)
         self.em_3d_ax.view_init(elev=curr_elev, azim=curr_azim)
         self.em_3d_ax.legend(loc='upper right', fontsize='x-small')
+
+        # --- DYNAMIC FREQUENCY-AWARE 3D EM SPACE ANNOTATIONS ---
+        # Throat Injection Node Boundary Callout
+        # Draws a tracking vector pointing precisely to where the main trace splits into the distributed stub network
+        self.em_3d_ax.quiver(0, -5.0, 1.2, 0, 0, -0.9, color='white', length=0.8, arrow_length_ratio=0.3, linewidth=1.5)
+        self.em_3d_ax.text(2.0, -5.0, 1.3, "RF Choke Throat Node\n(transforms Short to Open)", color='yellow', fontsize=8, weight='bold', fontname='sans-serif')
+
+        # Transmitted Load Node Status Tag
+        # Visually marks the signal exiting the decoupling network towards the active component pads
+        is_isolated = s21_db_val < -25.0
+        status_color = 'limegreen' if is_isolated else 'red'
+        status_txt = "Signal Attenuated (Choked)" if is_isolated else "RF Leakage (Poor Isolation)"
+
+        self.em_3d_ax.plot([0], [2.0], [0], marker='o', color=status_color, markersize=6)
+        self.em_3d_ax.text(2.0, 2.0, 0.2, f"To Transistor Input Pad\nStatus: {status_txt}", color=status_color, fontsize=8, fontname='sans-serif')
+
+        # Dynamic Multi-Stage Sector ID Markers
+        # Iterates through active layout sections to label individual rejection bands live in the 3D space
+        for stage in range(1, 3):
+            # Stage 1 sits close to the throat (-5mm); Stage 2 is cascaded further back down the line
+            y_loc = -9.0 if stage == 1 else -22.0
+            freq_target = f_tuned if stage == 1 else self.loader.f_max_mhz
+
+            self.em_3d_ax.text(-18.0, y_loc, 0.05,
+                               f"Stage {stage} Radial Stub\nRejection: {freq_target:.1f} MHz",
+                               color='darkorange', fontsize=7, weight='bold', fontname='monospace',
+                               bbox=dict(facecolor='#111111', alpha=0.5, edgecolor='none', boxstyle='square,pad=0.2'))
+
+        # Phase and Guided Wavelength Vector Indicator
+        # Draws a reference physical baseline scale at the bottom of the workspace substrate layer
+        self.em_3d_ax.plot([-20, -10], [-28, -28], [-1.6, -1.6], color='darkgrey', linewidth=2)
+        self.em_3d_ax.text(-22, -27, -1.5, "Physical Ground Plane Layer (Vss Floor)", color='grey', fontsize=7)
+        ####
+
         self.em_3d_fig.tight_layout()
         self.em_3d_canvas.draw_idle()
 

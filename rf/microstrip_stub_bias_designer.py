@@ -173,24 +173,53 @@ class MicrostripStubBiasDesigner:
             vy_mesh = vy + via_radius * np.sin(P)
             via_cylinders.append((vx_mesh, vy_mesh, Z))
 
+        # --- HIGH-FIDELITY VECTOR FIELD CORE SIMULATION ENGINE ---
         # Generate Time-Dependent Signal Wave Propagation Trace
-        wave_y = np.linspace(-15.0, 2.0, 60)
+        wave_y = np.linspace(-15.0, 2.0, 100)
         wave_x = np.zeros_like(wave_y)
-        beta = (2 * math.pi) / (lambda_g * 1000)
 
-        if mode == 'cw':
-            wave_z = 0.4 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
-            wave_hx = 3.5 * np.sin(beta * (wave_y + 5.0)) * np.cos(phase_shift)
-        else:
-            pulse_center = -15.0 + (phase_shift * 3.5)
-            pulse_envelope = np.exp(-((wave_y - pulse_center) / 2.0)**2)
-            if pulse_center > -5.0:
-                reflected_center = -5.0 - (pulse_center + 5.0)
-                reflected_envelope = -0.8 * np.exp(-((wave_y - reflected_center) / 2.0)**2)
-                wave_z = 0.4 * (pulse_envelope + reflected_envelope) * np.cos(beta * wave_y)
+        # Fetch live S-parameter performance thresholds from the network data profile
+        s11_mag = 0.1  # Highly matched baseline default
+        s21_mag = 1.0  # Perfect transmission default
+
+        if self.loader.network is not None:
+            f_hz_query = f_hz
+            idx_q = np.argmin(np.abs(self.loader.network.f - f_hz_query))
+            s11_mag = np.abs(self.loader.network.s[idx_q, 0, 0])
+            s21_mag = np.abs(self.loader.network.s[idx_q, 1, 0])
+
+        # Derive true microstrip phase constant (beta) and alpha (dielectric/conductor loss factor)
+        beta = (2.0 * math.pi) / (lambda_g * 1000.0)
+        # Scaled rough approximation of skin effect + loss tangent dielectric absorption over frequency
+        alpha = 0.005 * math.sqrt(target_f_mhz / 500.0)
+
+        # Mathematically model the overlapping forward, reflected, and transmitted boundary waves
+        wave_z = np.zeros_like(wave_y)
+        wave_hx = np.zeros_like(wave_y)
+
+        for i, y_pos in enumerate(wave_y):
+            # Distance calculated from the source injection terminal upward
+            dist_source = y_pos - wave_y[0]
+
+            # Sub-RF Network Segment A: Path leading up to the radial stub throat injection node (y < -5)
+            if y_pos < -5.0:
+                # Forward incident wave vector
+                v_forward = 0.4 * math.exp(-alpha * dist_source) * math.sin(beta * y_pos - phase_shift)
+                # Reflected return wave vector scaling directly with raw S11 magnitudes
+                v_reflect = 0.4 * s11_mag * math.exp(alpha * y_pos) * math.sin(beta * (-y_pos) - phase_shift)
+
+                # Superposition constructs true Standing Wave nodes/nulls
+                wave_z[i] = v_forward + v_reflect
+                wave_hx[i] = (v_forward - v_reflect) * 8.5
+
+            # Sub-RF Network Segment B: Path bleeding into the stub networks and exiting toward active chip pads
             else:
-                wave_z = 0.4 * pulse_envelope * np.cos(beta * wave_y)
-            wave_hx = wave_z * 8.5
+                # Transmitted wave shrinks dynamically based on your S21 RF isolation attenuation performance!
+                # If your stub is working perfectly, the wave past y = -5 will flatten completely to zero.
+                v_transmit = 0.4 * s21_mag * math.exp(-alpha * dist_source) * np.sin(beta * y_pos - phase_shift)
+
+                wave_z[i] = v_transmit
+                wave_hx[i] = v_transmit * 8.5
 
         return {
             "substrate": (sub_x, sub_y, sub_z_top, sub_z_bot),
