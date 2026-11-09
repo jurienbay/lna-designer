@@ -25,24 +25,35 @@ class TransmissionLineSuite:
     def calculate_pcb_microstrip(self, board_type="FR-4 Standard (1.6mm)", t_oz=1.0):
         profile = self.SUBSTRATE_PROFILES.get(board_type, self.SUBSTRATE_PROFILES["FR-4 Standard (1.6mm)"])
         er = profile["er"]
-        h = profile["h_mils"]
-        t = t_oz * 1.37
-
+        h_mils = profile["h_mils"]
         target_zo = self.z0
-        best_w = 0.0
-        min_err = float("inf")
 
-        for w_check in np.linspace(1, 200, 2000):
-            zo_calc = (87.0 / math.sqrt(er + 1.41)) * math.log((5.98 * h) / (0.8 * w_check + t))
-            if abs(zo_calc - target_zo) < min_err:
-                min_err = abs(zo_calc - target_zo)
-                best_w = w_check
+        # Calculate the intermediate variables for Hammerstad & Jensen inversion
+        A = (target_zo / 60.0) * math.sqrt((er + 1.0) / 2.0) + ((er - 1.0) / (er + 1.0)) * (0.23 + 0.11 / er)
+        B = (377.0 * math.pi) / (2.0 * target_zo * math.sqrt(er))
+
+        # Evaluate boundary thresholds to select the precise closed-form inversion path
+        w_over_h_narrow = 8.0 * math.exp(A) / (math.exp(2.0 * A) - 2.0)
+        w_over_h_wide = (2.0 / math.pi) * (B - 1.0 - math.log(2.0 * B - 1.0) + ((er - 1.0) / (2.0 * er)) * (math.log(B - 1.0) + 0.39 - 0.61 / er))
+
+        # Selection rule based on width/height ratio transition point
+        w_over_h = w_over_h_narrow if w_over_h_narrow < 2.0 else w_over_h_wide
+
+        # Scale back to physical dimensions in mils
+        best_w = w_over_h * h_mils
+
+        # --- OPTIONAL: Apply standard microstrip thickness correction for copper foil (t) ---
+        t_mils = t_oz * 1.37
+        if t_mils > 0:
+            # Hammerstad thickness correction factor to ensure physical layout parity
+            delta_w = (t_mils / math.pi) * (1.0 + math.log((4.0 * math.pi * best_w) / t_mils if w_over_h < (1.0 / (2.0 * math.pi)) else (2.0 * h_mils) / t_mils))
+            best_w -= delta_w
 
         print("\n" + "=" * 75)
         print(f" 6. PCB COPPER MICROSTRIP TRACE SYNTHESIS ({board_type.upper()})")
         print("=" * 75)
         print(f"[*] Substrate Dielectric Constant (Er):  {er:.2f}")
-        print(f"[*] Dielectric Substrate Height (h):    {h:.1f} Mils")
+        print(f"[*] Dielectric Substrate Height (h):    {h_mils:.1f} Mils")
         print("-" * 75)
         print(colored(f"[+] Mandatory Trace Design Width:        {best_w:.1f} Mils", "cyan", attrs=["bold"]))
         print(f"    --> Metric Conversion Target:        {(best_w * 0.0254):.2f} mm Trace Width Layout")
