@@ -62,35 +62,53 @@ class TransmissionLineSuite:
 
     def calculate_pcb_gcpw(self, board_type="FR-4 Standard (1.6mm)", t_oz=1.0, default_gap_mils=10.0):
         import scipy.special as sp
+        from scipy.optimize import brentq
+
         profile = self.SUBSTRATE_PROFILES.get(board_type, self.SUBSTRATE_PROFILES["FR-4 Standard (1.6mm)"])
         er = profile["er"]
         h = profile["h_mils"]
         t = t_oz * 1.37
         s = default_gap_mils
-
         target_zo = self.z0
-        best_w, best_er_eff = 0.0, 1.0
-        min_err = float("inf")
 
-        for w_check in np.linspace(1, 200, 2000):
-            k1 = w_check / (w_check + 2 * s)
+        # Define a high-speed cached variable block to preserve E-field effective mapping memory allocations
+        cache = {"best_er_eff": 1.0}
+
+        # Define the target residual equation to solve: f(W) = Z0_calculated - Z0_target = 0
+        def gcpw_residual(w_check):
+            # Conductor center-to-plane spacing ratio mappings
+            k1 = w_check / (w_check + 2.0 * s)
             k1_prime = math.sqrt(1.0 - k1**2)
-            try:
-                k_ratio1 = sp.ellipk(k1) / sp.ellipk(k1_prime)
-                k2 = (math.sinh(math.pi * w_check / (4.0 * h))) / (math.sinh(math.pi * (w_check + 2 * s) / (4.0 * h)))
-                k2_prime = math.sqrt(1.0 - k2**2)
-                k_ratio2 = sp.ellipk(k2) / sp.ellipk(k2_prime)
 
-                er_eff = (1.0 + er * (k_ratio2 / k_ratio1)) / (1.0 + (k_ratio2 / k_ratio1))
-                zo_calc = (60.0 * math.pi / math.sqrt(er_eff)) / (k_ratio1 + k_ratio2)
-                zo_calc *= 1.0 - (t / (2.0 * s))
+            # Map conformal transformation ratios via Complete Elliptic Integrals
+            k_ratio1 = sp.ellipk(k1) / sp.ellipk(k1_prime)
 
-                if abs(zo_calc - target_zo) < min_err:
-                    min_err = abs(zo_calc - target_zo)
-                    best_w = w_check
-                    best_er_eff = er_eff
-            except:
-                continue
+            # Substrate dielectric height field boundary layer ratio mappings
+            k2 = (math.sinh(math.pi * w_check / (4.0 * h))) / (math.sinh(math.pi * (w_check + 2.0 * s) / (4.0 * h)))
+            k2_prime = math.sqrt(1.0 - k2**2)
+            k_ratio2 = sp.ellipk(k2) / sp.ellipk(k2_prime)
+
+            # Solve precise instantaneous effective permittivity
+            er_eff = (1.0 + er * (k_ratio2 / k_ratio1)) / (1.0 + (k_ratio2 / k_ratio1))
+
+            # Calculate characteristic waveguide impedance
+            zo_calc = (60.0 * math.pi / math.sqrt(er_eff)) / (k_ratio1 + k_ratio2)
+
+            # Apply corporate correction factor scaling for vertical copper trace thickness (t)
+            zo_calc *= 1.0 - (t / (2.0 * s))
+
+            # Cache the corresponding effective dielectric value for logging output
+            cache["best_er_eff"] = er_eff
+            return zo_calc - target_zo
+
+        try:
+            # Automatically drive the numerical step error down to 0 within a safe physical zone (1.0 to 300.0 Mils)
+            best_w = brentq(gcpw_residual, 1.0, 300.0, xtol=1e-4)
+            best_er_eff = cache["best_er_eff"]
+        except (ValueError, ZeroDivisionError):
+            # Fallback robust layout default if extreme dielectric configurations trigger evaluation limit errors
+            best_w = h * 0.8
+            best_er_eff = (er + 1.0) / 2.0
 
         print("\n" + "=" * 75)
         print(f" 6B. GCPW WAVEGUIDE STRUCTURE SYNTHESIS ({board_type.upper()})")
