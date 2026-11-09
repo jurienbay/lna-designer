@@ -109,7 +109,7 @@ class MicrostripStubBiasDesigner:
                 spacing_len_mm = (lambda_spacing / 4) * 1000
                 print(f"    - Inter-Stage Line:      {spacing_len_mm:.2f} mm separation length ({z_high}Ω trace)")
 
-    def generate_3d_mesh_data(self, stub_angle_deg=60, phase_shift=0.0, eval_freq_mhz=None, mode='cw', device_name="PHA-13HLN+"):
+    def generate_3d_mesh_data(self, stub_angle_deg=60, num_stages=2, phase_shift=0.0, eval_freq_mhz=None, mode='cw', device_name="PHA-13HLN+"):
         """
         Synthesizes raw 3D mesh arrays modeling the substrate bulk, etched copper planes,
         3D vertical thermal via cylinders, and active time-dependent RF electric field waves.
@@ -134,10 +134,27 @@ class MicrostripStubBiasDesigner:
 
         # Synthesize Radial Stub Copper Polygon Points
         theta = np.linspace(-math.radians(stub_angle_deg)/2, math.radians(stub_angle_deg)/2, 20)
-        throat_x, throat_y = 0.0, -5.0
 
-        stub_x_pts = [throat_x - w_high/2] + [throat_x + radius_r_mm * math.sin(t) for t in theta] + [throat_x + w_high/2]
-        stub_y_pts = [throat_y] + [throat_y - radius_r_mm * math.cos(t) for t in theta] + [throat_y]
+        # Track physical cascading offsets across multi-stage calculations
+        stubs_polygons = []
+        current_y_offset = -5.0 # Starting throat injection node position
+
+        for stage in range(1, num_stages + 1):
+            target_f = (eval_freq_mhz if eval_freq_mhz is not None else self.loader.f_center_mhz) * 1e6 if stage == 1 else self.loader.f_max_mhz * 1e6
+            _, er_eff_stub = self.calculate_microstrip_w_and_eff(self.z0)
+            lambda_g_stage = self.c0 / (target_f * math.sqrt(er_eff_stub))
+            radius_r_mm = (lambda_g_stage / 4) * 1000
+
+            # Build independent mesh paths for each cascading section
+            s_x = [0.0 - w_high/2] + [0.0 + radius_r_mm * math.sin(t) for t in theta] + [0.0 + w_high/2]
+            s_y = [current_y_offset] + [current_y_offset - radius_r_mm * math.cos(t) for t in theta] + [current_y_offset]
+            stubs_polygons.append((np.array(s_x), np.array(s_y), np.zeros_like(s_x) + 0.02))
+
+            # Advance layout coordinates by adding the required inter-stage isolation spacing line length
+            _, er_eff_high = self.calculate_microstrip_w_and_eff(z_high)
+            lambda_spacing = self.c0 / ((self.loader.f_max_mhz * 1e6) * math.sqrt(er_eff_high))
+            spacing_len_mm = (lambda_spacing / 4) * 1000
+            current_y_offset -= (radius_r_mm + spacing_len_mm)
 
         # Model 3D Thermal Via Cylinders from Hardware Registry
         dev_cfg = DEVICE_PROFILES.get(device_name, DEVICE_PROFILES["PHA-13HLN+"])
@@ -177,7 +194,7 @@ class MicrostripStubBiasDesigner:
 
         return {
             "substrate": (sub_x, sub_y, sub_z_top, sub_z_bot),
-            "stub_poly": (np.array(stub_x_pts), np.array(stub_y_pts), np.zeros_like(stub_x_pts) + 0.02),
+            "stubs": stubs_polygons,
             "vias": via_cylinders,
             "wave_trace": (wave_x, wave_y, wave_z, wave_hx),
             "target_freq": target_f_mhz

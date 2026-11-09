@@ -94,6 +94,7 @@ class DesignerApp:
         # Fetch parameterized mesh state maps
         mesh_data = self.stub_designer.generate_3d_mesh_data(
             phase_shift=self.current_phase,
+            num_stages=2,  # Matches the cascading framework configured in recompute_all
             eval_freq_mhz=f_tuned,
             mode=self.simulation_mode.get(),
             device_name=self.active_device_var.get()
@@ -108,8 +109,8 @@ class DesignerApp:
         self.em_3d_ax.plot_surface(sub_x, sub_y, z_top, color='green', alpha=0.08, edgecolor='none')
         self.em_3d_ax.plot_surface(sub_x, sub_y, z_bot, color='gold', alpha=0.15, edgecolor='none')
 
-        cu_x, cu_y, cu_z = mesh_data["stub_poly"]
-        self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.75, edgecolor='brown', linewidth=0.5)
+        for cu_x, cu_y, cu_z in mesh_data["stubs"]:
+            self.em_3d_ax.plot_trisurf(cu_x, cu_y, cu_z, color='darkorange', alpha=0.75, edgecolor='brown', linewidth=0.5)
 
         # Render Fields traces
         wx, wy, wz, hx = mesh_data["wave_trace"]
